@@ -71,11 +71,8 @@ dependencies {
     // DataStore
     implementation(libs.androidx.datastore.preferences)
     
-    // Supabase Storage
-    implementation(platform(libs.supabase.bom))
-    implementation(libs.supabase.storage)
-    implementation(libs.ktor.client.cio)
-    implementation(libs.kotlinx.serialization.json)
+    // Cloudinary Storage
+    implementation(libs.cloudinary.android)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
