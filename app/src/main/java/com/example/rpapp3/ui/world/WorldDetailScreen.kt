@@ -92,13 +92,6 @@ fun WorldDetailScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // World info section
-            world?.let { w ->
-                item {
-                    WorldInfoSection(world = w)
-                }
-            }
-            
             // Chats section
             item {
                 Card(
@@ -175,60 +168,8 @@ fun WorldDetailScreen(
     }
 }
 
-@Composable
-private fun WorldInfoSection(world: com.example.rpapp3.data.model.World) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            if (world.description.isNotBlank()) {
-                Text(
-                    text = "Description",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    text = world.description,
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
-            
-            if (world.writingStyle.isNotBlank()) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Writing Style",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    text = world.writingStyle,
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
-            
-            if (world.systemInstructions.isNotBlank()) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "AI Instructions",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    text = world.systemInstructions,
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-    }
-}
+// WorldInfoSection removed - Description, Writing Style, and AI Instructions
+// are only visible/editable in the Edit World screen
 
 @Composable
 private fun EmptyCharactersState(onCreateCharacter: () -> Unit) {

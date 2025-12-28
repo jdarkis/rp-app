@@ -11,43 +11,94 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
 
-private val DarkColorScheme = darkColorScheme(
-    primary = Purple80,
-    secondary = PurpleGrey80,
-    tertiary = Pink80
+private val ModernDarkScheme = darkColorScheme(
+    primary = ElectricBlue,
+    onPrimary = VoidBlack,
+    primaryContainer = ElectricBlueContainer,
+    onPrimaryContainer = NeonCyan,
+    secondary = NeonCyan,
+    onSecondary = VoidBlack,
+    secondaryContainer = NeonCyanContainer,
+    onSecondaryContainer = ElectricBlue,
+    tertiary = Pink80,
+    background = VoidBlack,
+    surface = DarkSurface,
+    onBackground = TextPrimary,
+    onSurface = TextPrimary,
+    error = ErrorRed
 )
 
-private val LightColorScheme = lightColorScheme(
+private val CyberpunkScheme = darkColorScheme(
+    primary = CyberYellow,
+    onPrimary = CyberBlack,
+    primaryContainer = CyberDarkHolo,
+    onPrimaryContainer = CyberYellow,
+    secondary = CyberPink,
+    onSecondary = CyberBlack,
+    secondaryContainer = CyberDarkHolo,
+    onSecondaryContainer = CyberPink,
+    background = CyberBlack,
+    surface = CyberDarkHolo,
+    onBackground = CyberYellow,
+    onSurface = CyberPink,
+    error = ErrorRed
+)
+
+private val NatureScheme = darkColorScheme(
+    primary = LightLeaf,
+    onPrimary = DarkPine,
+    primaryContainer = DarkPine,
+    onPrimaryContainer = LightLeaf,
+    secondary = ForestGreen,
+    onSecondary = SandBeige,
+    background = EarthBrown,
+    surface = DarkPine,
+    onBackground = SandBeige,
+    onSurface = SandBeige
+)
+
+private val ClassicScheme = lightColorScheme(
     primary = Purple40,
     secondary = PurpleGrey40,
     tertiary = Pink40
+)
 
-    /* Other default colors to override
-    background = Color(0xFFFFFBFE),
-    surface = Color(0xFFFFFBFE),
-    onPrimary = Color.White,
-    onSecondary = Color.White,
-    onTertiary = Color.White,
-    onBackground = Color(0xFF1C1B1F),
-    onSurface = Color(0xFF1C1B1F),
-    */
+private val EclipseScheme = darkColorScheme(
+    primary = SilverAccent,
+    onPrimary = MatteBlack,
+    primaryContainer = DarkGreySurface,
+    onPrimaryContainer = SilverAccent,
+    secondary = SilverAccent,
+    background = MatteBlack,
+    surface = DarkGreySurface,
+    onBackground = SilverAccent,
+    onSurface = SilverAccent
+)
+
+private val CloudScheme = lightColorScheme(
+    primary = DeepSky,
+    onPrimary = SoftWhite,
+    primaryContainer = SkyBlue,
+    onPrimaryContainer = DeepSky,
+    secondary = SkyBlue,
+    background = SoftWhite,
+    surface = CloudGrey,
+    onBackground = DeepSky,
+    onSurface = DeepSky
 )
 
 @Composable
 fun RPApp3Theme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    // Dynamic color is available on Android 12+
-    dynamicColor: Boolean = true,
+    selectedTheme: String = "MODERN_DARK",
     content: @Composable () -> Unit
 ) {
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
+    val colorScheme = when (selectedTheme) {
+        "CYBERPUNK" -> CyberpunkScheme
+        "NATURE" -> NatureScheme
+        "CLASSIC" -> ClassicScheme
+        "ECLIPSE" -> EclipseScheme
+        "CLOUD" -> CloudScheme
+        else -> ModernDarkScheme
     }
 
     MaterialTheme(

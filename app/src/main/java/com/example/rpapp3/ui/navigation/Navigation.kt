@@ -12,6 +12,8 @@ import com.example.rpapp3.ui.character.EditCharacterScreen
 import com.example.rpapp3.ui.chat.ChatListScreen
 import com.example.rpapp3.ui.chat.ChatScreen
 import com.example.rpapp3.ui.chat.NewChatScreen
+import com.example.rpapp3.ui.settings.ApiKeysScreen
+import com.example.rpapp3.ui.settings.AppearanceScreen
 import com.example.rpapp3.ui.settings.SettingsScreen
 import com.example.rpapp3.ui.world.CreateWorldScreen
 import com.example.rpapp3.ui.world.EditWorldScreen
@@ -190,9 +192,23 @@ fun AppNavigation(navController: NavHostController) {
             )
         }
         
-        // Settings route
+        // Settings routes
         composable(Routes.Settings.route) {
             SettingsScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToApiKeys = { navController.navigate(Routes.SettingsApiKeys.route) },
+                onNavigateToAppearance = { navController.navigate(Routes.SettingsAppearance.route) }
+            )
+        }
+        
+        composable(Routes.SettingsApiKeys.route) {
+            ApiKeysScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+        
+        composable(Routes.SettingsAppearance.route) {
+            AppearanceScreen(
                 onNavigateBack = { navController.popBackStack() }
             )
         }

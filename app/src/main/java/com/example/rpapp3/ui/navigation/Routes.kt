@@ -35,4 +35,6 @@ sealed class Routes(val route: String) {
     
     // Settings
     data object Settings : Routes("settings")
+    data object SettingsApiKeys : Routes("settings/api-keys")
+    data object SettingsAppearance : Routes("settings/appearance")
 }

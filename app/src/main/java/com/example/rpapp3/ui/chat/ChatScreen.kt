@@ -1,6 +1,12 @@
 package com.example.rpapp3.ui.chat
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -71,26 +77,33 @@ fun ChatScreen(
                         Text(
                             text = currentChat?.title ?: "Chat",
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.titleMedium
                         )
                         if (characters.isNotEmpty()) {
                             Text(
                                 text = characters.joinToString(", ") { it.name },
                                 style = MaterialTheme.typography.bodySmall,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                overflow = TextOverflow.Ellipsis,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack, 
+                            contentDescription = "Back",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                    titleContentColor = MaterialTheme.colorScheme.onSurface,
+                    scrolledContainerColor = MaterialTheme.colorScheme.surface
                 )
             )
         }
@@ -98,6 +111,14 @@ fun ChatScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .background(
+                    androidx.compose.ui.graphics.Brush.verticalGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.background,
+                            MaterialTheme.colorScheme.surface
+                        )
+                    )
+                )
                 .padding(paddingValues)
         ) {
             // Messages list
@@ -113,7 +134,16 @@ fun ChatScreen(
                 items(messages, key = { it.id }) { message ->
                     MessageBubble(
                         message = message,
-                        character = characters.find { it.id == message.characterId }
+                        character = characters.find { it.id == message.characterId },
+                        onCopy = { text ->
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("Message", text))
+                            Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                        },
+                        onDelete = { viewModel.deleteMessage(message.id) },
+                        onRegenerate = if (!message.isUser) {
+                            { viewModel.regenerateResponse(message.id) }
+                        } else null
                     )
                 }
                 
@@ -141,12 +171,18 @@ fun ChatScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MessageBubble(
     message: ChatMessage,
-    character: Character?
+    character: Character?,
+    onCopy: (String) -> Unit,
+    onDelete: () -> Unit,
+    onRegenerate: (() -> Unit)?
 ) {
     val isUser = message.isUser
+    var showMenu by remember { mutableStateOf(false) }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     
     val bubbleColor = if (isUser) {
         MaterialTheme.colorScheme.primary
@@ -166,33 +202,76 @@ fun MessageBubble(
         RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp)
     }
     
+    // Delete confirmation dialog
+    if (showDeleteConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmDialog = false },
+            title = { Text("Delete Message?") },
+            text = { Text("This action cannot be undone.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteConfirmDialog = false
+                        onDelete()
+                    }
+                ) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirmDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+    
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Bottom
     ) {
-        // Character avatar for AI messages
+        // Avatar for AI messages - show Narrator icon or Character avatar
         if (!isUser) {
-            if (character?.photoUrls?.isNotEmpty() == true) {
-                AsyncImage(
-                    model = character.photoUrls.first(),
-                    contentDescription = character.name,
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape),
-                    contentScale = ContentScale.Crop
-                )
-            } else {
+            val isNarrator = message.characterName.equals("Narrator", ignoreCase = true)
+            
+            if (isNarrator) {
+                // Show book icon for narrator
                 Surface(
-                    modifier = Modifier.size(32.dp),
+                    modifier = Modifier.size(36.dp),
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.tertiaryContainer
                 ) {
                     Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Filled.MenuBook,
+                            contentDescription = "Narrator",
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                    }
+                }
+            } else if (character?.photoUrls?.isNotEmpty() == true) {
+                AsyncImage(
+                    model = character.photoUrls.first(),
+                    contentDescription = character.name,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Surface(
+                    modifier = Modifier.size(36.dp),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.secondaryContainer
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
                         Text(
                             text = (message.characterName ?: "AI").take(1).uppercase(),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
                         )
                     }
                 }
@@ -210,20 +289,74 @@ fun MessageBubble(
                     text = message.characterName,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(start = 4.dp, bottom = 2.dp)
+                    modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
                 )
             }
             
-            Surface(
-                shape = shape,
-                color = bubbleColor
-            ) {
-                Text(
-                    text = message.text,
-                    color = textColor,
-                    modifier = Modifier.padding(12.dp),
-                    style = MaterialTheme.typography.bodyMedium
-                )
+            Box {
+                Surface(
+                    shape = shape,
+                    color = bubbleColor,
+                    shadowElevation = 2.dp,
+                    tonalElevation = if (isUser) 0.dp else 1.dp,
+                    modifier = Modifier.combinedClickable(
+                        onClick = { },
+                        onLongClick = { showMenu = true }
+                    )
+                ) {
+                    Text(
+                        text = message.text,
+                        color = textColor,
+                        modifier = Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+                
+                // Dropdown menu for actions
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Copy") },
+                        onClick = {
+                            showMenu = false
+                            onCopy(message.text)
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Default.ContentCopy, contentDescription = null)
+                        }
+                    )
+                    
+                    DropdownMenuItem(
+                        text = { Text("Delete") },
+                        onClick = {
+                            showMenu = false
+                            showDeleteConfirmDialog = true
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    )
+                    
+                    // Regenerate option only for AI messages
+                    if (onRegenerate != null) {
+                        DropdownMenuItem(
+                            text = { Text("Regenerate") },
+                            onClick = {
+                                showMenu = false
+                                onRegenerate()
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.Refresh, contentDescription = null)
+                            }
+                        )
+                    }
+                }
             }
         }
     }

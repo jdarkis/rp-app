@@ -1,5 +1,6 @@
 package com.example.rpapp3.ui.world
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -33,14 +34,15 @@ fun WorldListScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("My Worlds") },
+                title = { Text("My Worlds", style = MaterialTheme.typography.titleLarge) },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                    titleContentColor = MaterialTheme.colorScheme.onSurface,
+                    scrolledContainerColor = MaterialTheme.colorScheme.surface
                 ),
                 actions = {
                     IconButton(onClick = onSettingsClick) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+                        Icon(Icons.Default.Settings, contentDescription = "Settings", tint = MaterialTheme.colorScheme.primary)
                     }
                 }
             )
@@ -49,43 +51,53 @@ fun WorldListScreen(
             ExtendedFloatingActionButton(
                 onClick = onCreateClick,
                 icon = { Icon(Icons.Default.Add, contentDescription = "Create") },
-                text = { Text("New World") }
+                text = { Text("New World") },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
             )
         }
     ) { paddingValues ->
-        if (worlds.isEmpty() && !viewModel.isLoading) {
-            EmptyWorldsState(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues),
-                onCreateClick = onCreateClick
-            )
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(worlds, key = { it.id }) { world ->
-                    WorldCard(
-                        world = world,
-                        onClick = { onWorldClick(world.id) }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    androidx.compose.ui.graphics.Brush.verticalGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.background,
+                            MaterialTheme.colorScheme.surface
+                        )
                     )
+                )
+                .padding(paddingValues)
+        ) {
+            if (worlds.isEmpty() && !viewModel.isLoading) {
+                EmptyWorldsState(
+                    modifier = Modifier.fillMaxSize(),
+                    onCreateClick = onCreateClick
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(worlds, key = { it.id }) { world ->
+                        WorldCard(
+                            world = world,
+                            onClick = { onWorldClick(world.id) }
+                        )
+                    }
                 }
             }
-        }
-        
-        // Loading overlay
-        if (viewModel.isLoading) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator()
+            
+            // Loading overlay
+            if (viewModel.isLoading) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                }
             }
         }
     }

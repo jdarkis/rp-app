@@ -139,6 +139,43 @@ class ChatRepository {
     }
     
     /**
+     * Delete a single message from a chat
+     */
+    suspend fun deleteMessage(chatId: String, messageId: String): Result<Unit> {
+        return try {
+            chatsCollection
+                .document(chatId)
+                .collection("messages")
+                .document(messageId)
+                .delete()
+                .await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+    
+    /**
+     * Delete multiple messages from a chat
+     */
+    suspend fun deleteMessages(chatId: String, messageIds: List<String>): Result<Unit> {
+        return try {
+            val batch = firestore.batch()
+            messageIds.forEach { messageId ->
+                val docRef = chatsCollection
+                    .document(chatId)
+                    .collection("messages")
+                    .document(messageId)
+                batch.delete(docRef)
+            }
+            batch.commit().await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+    
+    /**
      * Delete all messages for a chat
      */
     private suspend fun deleteMessagesByChat(chatId: String) {

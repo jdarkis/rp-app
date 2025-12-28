@@ -85,8 +85,9 @@ fun CreateWorldScreen(
                 onValueChange = { writingStyle = it },
                 label = { Text("Writing Style") },
                 placeholder = { Text("e.g., Formal, Fantasy prose, Casual, Dramatic...") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(150.dp),
                 enabled = !viewModel.isLoading
             )
             

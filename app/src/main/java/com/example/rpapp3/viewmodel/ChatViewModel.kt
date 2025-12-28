@@ -190,7 +190,7 @@ class ChatViewModel : ViewModel() {
             generationConfig = generationConfig {
                 temperature = 0.9f
                 topP = 0.95f
-                maxOutputTokens = 2048
+                maxOutputTokens = 8192
             },
             systemInstruction = content { text(systemInstructions) },
             // IMPORTANT: Disable all tools including Google Search grounding
@@ -260,6 +260,18 @@ class ChatViewModel : ViewModel() {
             appendLine("3. Use the specified writing style for your responses")
             appendLine("4. Be creative and engaging while staying consistent with the world setting")
             appendLine("5. If multiple characters are present, you may respond as any or all of them as appropriate")
+            appendLine()
+            appendLine("=== RESPONSE FORMAT ===")
+            appendLine("IMPORTANT: You MUST prefix each part of your response to indicate who is speaking:")
+            appendLine("- For narration, descriptions, and actions: Start with [NARRATOR]: ")
+            appendLine("- For character dialogue: Start with [CHARACTER_NAME]: (using the actual character's name)")
+            appendLine()
+            appendLine("Examples:")
+            appendLine("[NARRATOR]: The sun set over the mountains, casting long shadows across the valley.")
+            appendLine("[${characters.firstOrNull()?.name ?: "Character"}]: \"Hello there! I've been waiting for you.\"")
+            appendLine("[NARRATOR]: She smiled warmly, her eyes twinkling in the fading light.")
+            appendLine()
+            appendLine("Always use these prefixes to clearly indicate narrator vs character speech.")
         }
     }
     
@@ -328,21 +340,14 @@ class ChatViewModel : ViewModel() {
             val response = chatSession?.sendMessage(userMessage)
             
             response?.text?.let { responseText ->
-                // Determine which character responded (for single character chats)
-                val respondingCharacter = _characters.value.firstOrNull()
+                // Parse the response to create separate messages for narrator and characters
+                val parsedMessages = parseResponseIntoMessages(responseText, chatId)
                 
-                val aiMessage = ChatMessage(
-                    chatId = chatId,
-                    text = responseText,
-                    isUser = false,
-                    characterId = respondingCharacter?.id,
-                    characterName = respondingCharacter?.name
-                )
-                
-                _messages.add(aiMessage)
-                
-                // Save AI message to Firestore
-                chatRepository.addMessage(aiMessage)
+                parsedMessages.forEach { aiMessage ->
+                    _messages.add(aiMessage)
+                    // Save AI message to Firestore
+                    chatRepository.addMessage(aiMessage)
+                }
             }
             
             _isLoading.value = false
@@ -410,17 +415,170 @@ class ChatViewModel : ViewModel() {
         }
     }
     
+    /**
+     * Parse the AI response into separate messages for narrator and characters.
+     * Expected format: [SPEAKER]: text
+     * Where SPEAKER is either "NARRATOR" or a character name.
+     */
+    private fun parseResponseIntoMessages(responseText: String, chatId: String): List<ChatMessage> {
+        val messages = mutableListOf<ChatMessage>()
+        val characters = _characters.value
+        
+        // Regex to match [SPEAKER]: pattern
+        val speakerPattern = Regex("""\[([^\]]+)\]:\s*""")
+        
+        // Split the response by speaker prefixes
+        val parts = speakerPattern.split(responseText)
+        val speakers = speakerPattern.findAll(responseText).map { it.groupValues[1] }.toList()
+        
+        // If no speakers found, treat entire response as narrator
+        if (speakers.isEmpty()) {
+            val fullText = responseText.trim()
+            if (fullText.isNotEmpty()) {
+                messages.add(
+                    ChatMessage(
+                        chatId = chatId,
+                        text = fullText,
+                        isUser = false,
+                        characterId = null,
+                        characterName = "Narrator"
+                    )
+                )
+            }
+            return messages
+        }
+        
+        // First part before any speaker tag (usually empty)
+        if (parts.isNotEmpty() && parts[0].isNotBlank()) {
+            messages.add(
+                ChatMessage(
+                    chatId = chatId,
+                    text = parts[0].trim(),
+                    isUser = false,
+                    characterId = null,
+                    characterName = "Narrator"
+                )
+            )
+        }
+        
+        // Process each speaker and their text
+        speakers.forEachIndexed { index, speaker ->
+            val textIndex = index + 1 // parts[0] is before first speaker
+            if (textIndex < parts.size) {
+                val text = parts[textIndex].trim()
+                if (text.isNotEmpty()) {
+                    val isNarrator = speaker.equals("NARRATOR", ignoreCase = true)
+                    val matchingCharacter = if (!isNarrator) {
+                        characters.find { it.name.equals(speaker, ignoreCase = true) }
+                    } else null
+                    
+                    messages.add(
+                        ChatMessage(
+                            chatId = chatId,
+                            text = text,
+                            isUser = false,
+                            characterId = matchingCharacter?.id,
+                            characterName = if (isNarrator) "Narrator" else (matchingCharacter?.name ?: speaker)
+                        )
+                    )
+                }
+            }
+        }
+        
+        // If parsing resulted in no messages, add the full response as narrator
+        if (messages.isEmpty()) {
+            messages.add(
+                ChatMessage(
+                    chatId = chatId,
+                    text = responseText.trim(),
+                    isUser = false,
+                    characterId = null,
+                    characterName = "Narrator"
+                )
+            )
+        }
+        
+        return messages
+    }
+    
+    /**
+     * Delete a single message from the chat
+     */
+    fun deleteMessage(messageId: String) {
+        val chatId = _currentChat.value?.id ?: return
+        val messageToDelete = _messages.find { it.id == messageId } ?: return
+        
+        // Optimistically remove from local state
+        val messageIndex = _messages.indexOf(messageToDelete)
+        _messages.removeAt(messageIndex)
+        
+        viewModelScope.launch {
+            chatRepository.deleteMessage(chatId, messageId)
+                .onFailure {
+                    // Restore message if deletion failed
+                    if (messageIndex >= 0 && messageIndex <= _messages.size) {
+                        _messages.add(messageIndex, messageToDelete)
+                    }
+                }
+        }
+    }
+    
+    /**
+     * Regenerate AI response for a specific message.
+     * This deletes the AI message and all messages after it,
+     * then resends the last user message before it.
+     */
+    fun regenerateResponse(aiMessageId: String) {
+        val chatId = _currentChat.value?.id ?: return
+        
+        // Find the AI message
+        val aiMessageIndex = _messages.indexOfFirst { it.id == aiMessageId }
+        if (aiMessageIndex < 0) return
+        
+        val aiMessage = _messages[aiMessageIndex]
+        if (aiMessage.isUser) return // Can only regenerate AI messages
+        
+        // Find the last user message before this AI message
+        var lastUserMessage: ChatMessage? = null
+        for (i in (aiMessageIndex - 1) downTo 0) {
+            if (_messages[i].isUser) {
+                lastUserMessage = _messages[i]
+                break
+            }
+        }
+        
+        if (lastUserMessage == null) return // No user message to regenerate from
+        
+        // Get all messages to delete (from aiMessage onwards)
+        val messagesToDelete = _messages.subList(aiMessageIndex, _messages.size).toList()
+        val messageIdsToDelete = messagesToDelete.map { it.id }
+        
+        // Remove messages from local state
+        _messages.removeAll(messagesToDelete.toSet())
+        
+        // Delete from Firestore and resend
+        viewModelScope.launch {
+            chatRepository.deleteMessages(chatId, messageIdsToDelete)
+            
+            // Resend the user message to get new AI response
+            _isLoading.value = true
+            sendMessageWithRetry(lastUserMessage.text, chatId)
+        }
+    }
+    
     fun deleteChat(chatId: String, onSuccess: () -> Unit, onError: (String) -> Unit) {
         viewModelScope.launch {
-            _isLoading.value = true
+            // Optimistically remove from local state for instant UI update
+            val previousChats = _chats.value
+            _chats.value = _chats.value.filter { it.id != chatId }
             
             chatRepository.deleteChat(chatId)
                 .onSuccess {
-                    _isLoading.value = false
                     onSuccess()
                 }
                 .onFailure { e ->
-                    _isLoading.value = false
+                    // Restore the chat if deletion failed
+                    _chats.value = previousChats
                     onError(e.message ?: "Failed to delete chat")
                 }
         }

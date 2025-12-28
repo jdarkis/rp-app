@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -44,11 +45,29 @@ fun CreateCharacterScreen(
     var appearance by remember { mutableStateOf("") }
     var personality by remember { mutableStateOf("") }
     var systemInstructions by remember { mutableStateOf("") }
+    var profilePictureUri by remember { mutableStateOf<Uri?>(null) }
     var photoUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var videoUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     
     val snackbarHostState = remember { SnackbarHostState() }
+    
+    // Profile picture picker
+    val profilePicturePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        uri?.let {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    it,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (e: SecurityException) {
+                // Some URIs don't support persistable permissions
+            }
+            profilePictureUri = it
+        }
+    }
     
     // Photo picker
     val photoPickerLauncher = rememberLauncherForActivityResult(
@@ -116,6 +135,68 @@ fun CreateCharacterScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Profile Picture section
+            Text(
+                text = "Profile Picture",
+                style = MaterialTheme.typography.titleMedium
+            )
+            
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(100.dp)
+                        .clip(CircleShape)
+                        .border(2.dp, MaterialTheme.colorScheme.outline, CircleShape)
+                        .clickable(enabled = !viewModel.isLoading) {
+                            profilePicturePickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (profilePictureUri != null) {
+                        AsyncImage(
+                            model = profilePictureUri,
+                            contentDescription = "Profile picture",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AddAPhoto,
+                                contentDescription = "Add profile picture",
+                                modifier = Modifier.size(32.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = "Add",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+                
+                if (profilePictureUri != null) {
+                    TextButton(
+                        onClick = { profilePictureUri = null },
+                        enabled = !viewModel.isLoading
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = null)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Remove")
+                    }
+                }
+            }
+            
+            HorizontalDivider()
+            
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
@@ -232,6 +313,7 @@ fun CreateCharacterScreen(
                         appearance = appearance,
                         personality = personality,
                         systemInstructions = systemInstructions,
+                        profilePictureUri = profilePictureUri,
                         photoUris = photoUris,
                         videoUris = videoUris,
                         onSuccess = onCharacterCreated,

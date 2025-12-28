@@ -63,6 +63,7 @@ class CharacterViewModel : ViewModel() {
         appearance: String,
         personality: String,
         systemInstructions: String,
+        profilePictureUri: Uri?,
         photoUris: List<Uri>,
         videoUris: List<Uri>,
         onSuccess: () -> Unit,
@@ -90,6 +91,21 @@ class CharacterViewModel : ViewModel() {
                 
                 val createdCharacter = characterRepository.createCharacter(character).getOrThrow()
                 Log.d("CharacterViewModel", "Created character with ID: ${createdCharacter.id}")
+                
+                // Upload profile picture if provided
+                var profilePictureUrl: String? = null
+                profilePictureUri?.let { uri ->
+                    uploadProgress = "Uploading profile picture..."
+                    Log.d("CharacterViewModel", "Attempting to upload profile picture from URI: $uri")
+                    mediaStorageService.uploadCharacterPhoto(context, createdCharacter.id, uri)
+                        .onSuccess { url ->
+                            profilePictureUrl = url
+                            Log.d("CharacterViewModel", "Successfully uploaded profile picture: $url")
+                        }
+                        .onFailure { e ->
+                            Log.e("CharacterViewModel", "Failed to upload profile picture: ${e.message}", e)
+                        }
+                }
                 
                 // Upload photos
                 val photoUrls = mutableListOf<String>()
@@ -126,16 +142,17 @@ class CharacterViewModel : ViewModel() {
                 }
                 
                 // Log summary
-                Log.d("CharacterViewModel", "Upload summary: ${photoUrls.size}/${photoUris.size} photos, ${videoUrls.size}/${videoUris.size} videos")
+                Log.d("CharacterViewModel", "Upload summary: ${photoUrls.size}/${photoUris.size} photos, ${videoUrls.size}/${videoUris.size} videos, profile: ${profilePictureUrl != null}")
                 
                 // Update character with media URLs if any were uploaded
-                if (photoUrls.isNotEmpty() || videoUrls.isNotEmpty()) {
+                if (profilePictureUrl != null || photoUrls.isNotEmpty() || videoUrls.isNotEmpty()) {
                     val updatedCharacter = createdCharacter.copy(
+                        profilePictureUrl = profilePictureUrl,
                         photoUrls = photoUrls,
                         videoUrls = videoUrls
                     )
                     characterRepository.updateCharacter(updatedCharacter).getOrThrow()
-                    Log.d("CharacterViewModel", "Successfully saved character with ${photoUrls.size} photos and ${videoUrls.size} videos")
+                    Log.d("CharacterViewModel", "Successfully saved character with profile picture and ${photoUrls.size} photos and ${videoUrls.size} videos")
                 }
                 
                 isLoading = false
@@ -160,6 +177,7 @@ class CharacterViewModel : ViewModel() {
     fun updateCharacter(
         context: Context,
         character: Character,
+        newProfilePictureUri: Uri?,
         newPhotoUris: List<Uri>,
         newVideoUris: List<Uri>,
         onSuccess: () -> Unit,
@@ -176,6 +194,18 @@ class CharacterViewModel : ViewModel() {
             
             try {
                 var updatedCharacter = character
+                
+                // Upload new profile picture if provided
+                newProfilePictureUri?.let { uri ->
+                    uploadProgress = "Uploading profile picture..."
+                    mediaStorageService.uploadCharacterPhoto(context, character.id, uri)
+                        .onSuccess { url ->
+                            updatedCharacter = updatedCharacter.copy(profilePictureUrl = url)
+                        }
+                        .onFailure { e ->
+                            Log.e("CharacterViewModel", "Failed to upload profile picture: ${e.message}", e)
+                        }
+                }
                 
                 // Upload new photos
                 val newPhotoUrls = mutableListOf<String>()
@@ -257,8 +287,11 @@ class CharacterViewModel : ViewModel() {
     fun removePhoto(character: Character, photoUrl: String, onComplete: () -> Unit) {
         viewModelScope.launch {
             mediaStorageService.deleteMedia(photoUrl)
+            // Also clear profile picture if it matches the removed photo
+            val updatedProfilePictureUrl = if (character.profilePictureUrl == photoUrl) null else character.profilePictureUrl
             val updatedCharacter = character.copy(
-                photoUrls = character.photoUrls.filter { it != photoUrl }
+                photoUrls = character.photoUrls.filter { it != photoUrl },
+                profilePictureUrl = updatedProfilePictureUrl
             )
             characterRepository.updateCharacter(updatedCharacter)
             _currentCharacter.value = updatedCharacter

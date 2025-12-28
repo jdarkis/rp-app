@@ -37,6 +37,13 @@ fun NewChatScreen(
     
     val snackbarHostState = remember { SnackbarHostState() }
     
+    // Auto-select all characters when they are loaded
+    LaunchedEffect(characters) {
+        if (characters.isNotEmpty() && selectedCharacterIds.isEmpty()) {
+            selectedCharacterIds = characters.map { it.id }.toSet()
+        }
+    }
+    
     LaunchedEffect(worldId) {
         viewModel.loadCharactersForSelection(worldId)
     }

@@ -1,7 +1,10 @@
 package com.example.rpapp3.ui.character
 
+import android.net.Uri
+import android.widget.VideoView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -17,8 +20,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.rpapp3.viewmodel.CharacterViewModel
@@ -32,6 +40,10 @@ fun CharacterDetailScreen(
     onEditCharacter: () -> Unit
 ) {
     val character by viewModel.currentCharacter.collectAsState()
+    
+    // State for expanded media
+    var expandedImageUrl by remember { mutableStateOf<String?>(null) }
+    var expandedVideoUrl by remember { mutableStateOf<String?>(null) }
     
     LaunchedEffect(characterId) {
         viewModel.loadCharacter(characterId)
@@ -77,18 +89,20 @@ fun CharacterDetailScreen(
                         .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // Character header with avatar
+                    // Character header with avatar (using profile picture or first photo)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        if (char.photoUrls.isNotEmpty()) {
+                        val avatarUrl = char.profilePictureUrl ?: char.photoUrls.firstOrNull()
+                        if (avatarUrl != null) {
                             AsyncImage(
-                                model = char.photoUrls.first(),
+                                model = avatarUrl,
                                 contentDescription = char.name,
                                 modifier = Modifier
                                     .size(80.dp)
-                                    .clip(CircleShape),
+                                    .clip(CircleShape)
+                                    .clickable { expandedImageUrl = avatarUrl },
                                 contentScale = ContentScale.Crop
                             )
                         } else {
@@ -168,7 +182,8 @@ fun CharacterDetailScreen(
                                     contentDescription = null,
                                     modifier = Modifier
                                         .size(150.dp)
-                                        .clip(RoundedCornerShape(8.dp)),
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable { expandedImageUrl = url },
                                     contentScale = ContentScale.Crop
                                 )
                             }
@@ -189,7 +204,8 @@ fun CharacterDetailScreen(
                                     modifier = Modifier
                                         .size(150.dp)
                                         .clip(RoundedCornerShape(8.dp))
-                                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                                        .clickable { expandedVideoUrl = url },
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Column(
@@ -213,6 +229,138 @@ fun CharacterDetailScreen(
                     
                     Spacer(modifier = Modifier.height(32.dp))
                 }
+            }
+        }
+    }
+    
+    // Expanded image dialog
+    expandedImageUrl?.let { url ->
+        ExpandedImageDialog(
+            imageUrl = url,
+            onDismiss = { expandedImageUrl = null }
+        )
+    }
+    
+    // Expanded video dialog
+    expandedVideoUrl?.let { url ->
+        ExpandedVideoDialog(
+            videoUrl = url,
+            onDismiss = { expandedVideoUrl = null }
+        )
+    }
+}
+
+@Composable
+private fun ExpandedImageDialog(
+    imageUrl: String,
+    onDismiss: () -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.9f))
+                .pointerInput(Unit) {
+                    detectTapGestures(onTap = { onDismiss() })
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = "Expanded image",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+                    .pointerInput(Unit) {
+                        detectTapGestures(onTap = { /* Don't dismiss when tapping the image */ })
+                    },
+                contentScale = ContentScale.Fit
+            )
+            
+            // Close button
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Close",
+                    tint = Color.White,
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExpandedVideoDialog(
+    videoUrl: String,
+    onDismiss: () -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.95f))
+                .pointerInput(Unit) {
+                    detectTapGestures(onTap = { onDismiss() })
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            // Video player using AndroidView
+            AndroidView(
+                factory = { context ->
+                    VideoView(context).apply {
+                        setVideoURI(Uri.parse(videoUrl))
+                        setOnPreparedListener { mediaPlayer ->
+                            mediaPlayer.isLooping = true
+                            start()
+                        }
+                        setOnErrorListener { _, _, _ ->
+                            // Handle error silently
+                            true
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(16f / 9f)
+                    .padding(16.dp)
+                    .pointerInput(Unit) {
+                        detectTapGestures(onTap = { /* Don't dismiss when tapping the video */ })
+                    }
+            )
+            
+            // Close button
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Close",
+                    tint = Color.White,
+                    modifier = Modifier.size(32.dp)
+                )
             }
         }
     }
