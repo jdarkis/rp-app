@@ -1,0 +1,46 @@
+package com.example.rpapp3.data
+
+import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.createSupabaseClient
+import io.github.jan.supabase.storage.Storage
+
+/**
+ * Supabase client singleton for storage operations.
+ * 
+ * To set up Supabase:
+ * 1. Go to https://supabase.com and create a free account
+ * 2. Create a new project
+ * 3. Go to Project Settings > API
+ * 4. Copy your Project URL and anon/public key
+ * 5. Create a copy of this file named SupabaseConfig.kt
+ * 6. Replace the placeholder values below with your actual credentials
+ * 7. Go to Storage and create a bucket called "character-media"
+ * 8. Set the bucket to public or configure RLS policies
+ */
+object SupabaseConfig {
+    // TODO: Replace with your Supabase project URL
+    private const val SUPABASE_URL = "YOUR_SUPABASE_URL"
+    
+    // TODO: Replace with your Supabase anon/public key
+    private const val SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY"
+    
+    // Storage bucket name for character media
+    const val BUCKET_NAME = "character-media"
+    
+    val client: SupabaseClient by lazy {
+        createSupabaseClient(
+            supabaseUrl = SUPABASE_URL,
+            supabaseKey = SUPABASE_ANON_KEY
+        ) {
+            install(Storage)
+        }
+    }
+    
+    /**
+     * Check if Supabase is configured
+     */
+    fun isConfigured(): Boolean {
+        return SUPABASE_URL != "YOUR_SUPABASE_URL" && 
+               SUPABASE_ANON_KEY != "YOUR_SUPABASE_ANON_KEY"
+    }
+}

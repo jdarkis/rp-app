@@ -1,0 +1,222 @@
+package com.example.rpapp3.data
+
+import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+
+private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "api_keys")
+
+/**
+ * API Key Manager for Gemini API.
+ * 
+ * To set up:
+ * 1. Go to https://aistudio.google.com/apikey
+ * 2. Create one or more API keys
+ * 3. Create a copy of this file named ApiKeyManager.kt
+ * 4. Replace the placeholder API keys below with your actual keys
+ */
+class ApiKeyManager(private val context: Context) {
+    
+    companion object {
+        private val API_KEYS_KEY = stringPreferencesKey("api_keys")
+        private val CURRENT_INDEX_KEY = intPreferencesKey("current_key_index")
+        private const val SEPARATOR = "|||"
+        
+        // TODO: Replace with your Gemini API keys
+        // You can add multiple keys for rotation when quota is exhausted
+        private val DEFAULT_API_KEYS = listOf(
+            "YOUR_GEMINI_API_KEY_1",
+            "YOUR_GEMINI_API_KEY_2"
+        )
+        
+        @Volatile
+        private var INSTANCE: ApiKeyManager? = null
+        
+        fun getInstance(context: Context): ApiKeyManager {
+            return INSTANCE ?: synchronized(this) {
+                INSTANCE ?: ApiKeyManager(context.applicationContext).also { INSTANCE = it }
+            }
+        }
+    }
+    
+    /**
+     * Flow of all API keys in the pool
+     */
+    val apiKeys: Flow<List<String>> = context.dataStore.data.map { preferences ->
+        val keysString = preferences[API_KEYS_KEY] ?: ""
+        if (keysString.isEmpty()) {
+            emptyList()
+        } else {
+            keysString.split(SEPARATOR)
+        }
+    }
+    
+    /**
+     * Flow of the current key index
+     */
+    val currentKeyIndex: Flow<Int> = context.dataStore.data.map { preferences ->
+        preferences[CURRENT_INDEX_KEY] ?: 0
+    }
+    
+    /**
+     * Initialize with default API keys if not already set
+     */
+    suspend fun initializeDefaults() {
+        val currentKeys = apiKeys.first()
+        if (currentKeys.isEmpty()) {
+            context.dataStore.edit { preferences ->
+                preferences[API_KEYS_KEY] = DEFAULT_API_KEYS.joinToString(SEPARATOR)
+                preferences[CURRENT_INDEX_KEY] = 0
+            }
+        }
+    }
+    
+    /**
+     * Get the currently active API key
+     */
+    suspend fun getCurrentApiKey(): String? {
+        val keys = apiKeys.first()
+        val index = currentKeyIndex.first()
+        return keys.getOrNull(index)
+    }
+    
+    /**
+     * Add a new API key to the pool
+     */
+    suspend fun addApiKey(key: String) {
+        if (key.isBlank()) return
+        context.dataStore.edit { preferences ->
+            val currentKeys = preferences[API_KEYS_KEY] ?: ""
+            val keysList = if (currentKeys.isEmpty()) {
+                mutableListOf()
+            } else {
+                currentKeys.split(SEPARATOR).toMutableList()
+            }
+            
+            // Don't add duplicates
+            if (!keysList.contains(key.trim())) {
+                keysList.add(key.trim())
+                preferences[API_KEYS_KEY] = keysList.joinToString(SEPARATOR)
+                
+                // Reset index to 0 so the new key gets a chance to be used
+                // This helps when all previous keys were exhausted
+                preferences[CURRENT_INDEX_KEY] = 0
+            }
+        }
+    }
+    
+    /**
+     * Remove an API key from the pool
+     */
+    suspend fun removeApiKey(key: String) {
+        context.dataStore.edit { preferences ->
+            val currentKeys = preferences[API_KEYS_KEY] ?: ""
+            if (currentKeys.isEmpty()) return@edit
+            
+            val keysList = currentKeys.split(SEPARATOR).toMutableList()
+            val removedIndex = keysList.indexOf(key)
+            keysList.remove(key)
+            
+            preferences[API_KEYS_KEY] = keysList.joinToString(SEPARATOR)
+            
+            // Adjust current index if needed
+            val currentIndex = preferences[CURRENT_INDEX_KEY] ?: 0
+            if (keysList.isEmpty()) {
+                preferences[CURRENT_INDEX_KEY] = 0
+            } else if (removedIndex <= currentIndex) {
+                // If we removed a key at or before current index, adjust
+                preferences[CURRENT_INDEX_KEY] = maxOf(0, currentIndex - 1) % keysList.size
+            }
+        }
+    }
+    
+    /**
+     * Rotate to the next API key in the pool
+     * Returns the new current key, or null if no keys available
+     */
+    suspend fun rotateToNextKey(): String? {
+        context.dataStore.edit { preferences ->
+            val currentKeys = preferences[API_KEYS_KEY] ?: ""
+            if (currentKeys.isEmpty()) return@edit
+            
+            val keysList = currentKeys.split(SEPARATOR)
+            if (keysList.isEmpty()) return@edit
+            
+            val currentIndex = preferences[CURRENT_INDEX_KEY] ?: 0
+            val nextIndex = (currentIndex + 1) % keysList.size
+            preferences[CURRENT_INDEX_KEY] = nextIndex
+        }
+        
+        return getCurrentApiKey()
+    }
+    
+    /**
+     * Reset the key index to 0 (start from the first key)
+     * Useful when quotas have reset or when trying again after all keys were exhausted
+    */
+    suspend fun resetKeyIndex() {
+        context.dataStore.edit { preferences ->
+            preferences[CURRENT_INDEX_KEY] = 0
+        }
+    }
+    
+    /**
+     * Set the active API key by index
+     * Allows manual selection of which key to use
+     */
+    suspend fun setActiveKeyIndex(index: Int) {
+        val keys = apiKeys.first()
+        if (index >= 0 && index < keys.size) {
+            context.dataStore.edit { preferences ->
+                preferences[CURRENT_INDEX_KEY] = index
+            }
+        }
+    }
+    
+    /**
+     * Check if an error message indicates a temporary rate limit (429) - should wait and retry same key
+     * Note: "resource exhausted" is NOT included here because it typically means quota is truly exhausted,
+     * not just a temporary rate limit.
+     */
+    fun isRateLimitError(errorMessage: String?): Boolean {
+        if (errorMessage == null) return false
+        val lowerMessage = errorMessage.lowercase()
+        // Only match true rate limit errors (429 Too Many Requests)
+        // Do NOT include "resource exhausted" here - that's a quota error
+        return (lowerMessage.contains("429") ||
+                lowerMessage.contains("rate limit") ||
+                lowerMessage.contains("too many requests")) &&
+                !lowerMessage.contains("quota") &&
+                !lowerMessage.contains("resource exhausted")
+    }
+    
+    /**
+     * Check if an error message indicates quota exceeded - should switch to next key
+     * This includes "resource exhausted" errors from Gemini API
+     */
+    fun isQuotaExhaustedError(errorMessage: String?): Boolean {
+        if (errorMessage == null) return false
+        val lowerMessage = errorMessage.lowercase()
+        return lowerMessage.contains("quota") ||
+                lowerMessage.contains("resource exhausted") ||
+                lowerMessage.contains("resource_exhausted") ||
+                lowerMessage.contains("free_tier") ||
+                lowerMessage.contains("exceeded") ||
+                (lowerMessage.contains("limit") && lowerMessage.contains("0"))
+    }
+    
+    /**
+     * Check if an error message indicates a quota error that should trigger key rotation
+     * This is separate from rate limit errors which should just retry with the same key
+     */
+    fun isQuotaError(errorMessage: String?): Boolean {
+        return isQuotaExhaustedError(errorMessage)
+    }
+}
