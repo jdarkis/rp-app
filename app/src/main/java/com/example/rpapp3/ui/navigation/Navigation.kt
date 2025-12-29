@@ -225,7 +225,8 @@ fun AppNavigation(navController: NavHostController) {
             val worldId = backStackEntry.arguments?.getString("worldId") ?: return@composable
             val chatId = backStackEntry.arguments?.getString("chatId") ?: return@composable
             ChatSettingsScreen(
-                systemPrompt = null, // Will be populated from ViewModel in future enhancement
+                chatId = chatId,
+                worldId = worldId,
                 onNavigateBack = { navController.popBackStack() }
             )
         }

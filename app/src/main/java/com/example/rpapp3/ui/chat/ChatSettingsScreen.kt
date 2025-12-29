@@ -19,21 +19,34 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.rpapp3.data.ChatSettingsManager
 import com.example.rpapp3.data.MessageFilterMode
 import com.example.rpapp3.data.SafetyThreshold
+import com.example.rpapp3.viewmodel.ChatViewModel
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatSettingsScreen(
-    systemPrompt: String?,
-    onNavigateBack: () -> Unit
+    chatId: String,
+    worldId: String,
+    onNavigateBack: () -> Unit,
+    chatViewModel: ChatViewModel = viewModel()
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val chatSettingsManager = remember { ChatSettingsManager.getInstance(context) }
+    
+    // Initialize ViewModel to load the system prompt
+    LaunchedEffect(chatId, worldId) {
+        chatViewModel.initializeWithContext(context)
+        chatViewModel.initializeChat(chatId, worldId)
+    }
+    
+    // Collect the system prompt from the ViewModel
+    val systemPrompt by chatViewModel.systemPrompt.collectAsState()
     
     // Collect all settings
     val filterMode by chatSettingsManager.filterMode.collectAsState(initial = MessageFilterMode.OFF)
