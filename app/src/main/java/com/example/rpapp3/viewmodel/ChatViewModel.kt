@@ -55,6 +55,10 @@ class ChatViewModel : ViewModel() {
     private val _characters = MutableStateFlow<List<Character>>(emptyList())
     val characters: StateFlow<List<Character>> = _characters
     
+    // All characters in the world (for avatar matching in dialogue)
+    private val _worldCharacters = MutableStateFlow<List<Character>>(emptyList())
+    val worldCharacters: StateFlow<List<Character>> = _worldCharacters
+    
     private val _world = MutableStateFlow<World?>(null)
     val world: StateFlow<World?> = _world
     
@@ -165,6 +169,14 @@ class ChatViewModel : ViewModel() {
                 
                 // Initialize AI model with context
                 initializeAI()
+            }
+            
+            // Load ALL world characters for avatar matching (separate from chat characters)
+            try {
+                val allChars = characterRepository.getCharactersByWorld(worldId).first()
+                _worldCharacters.value = allChars
+            } catch (e: Exception) {
+                // Ignore errors for world characters loading
             }
             
             // Set loading to false after initial setup
@@ -303,6 +315,19 @@ class ChatViewModel : ViewModel() {
             appendLine("4. Be creative and engaging while staying consistent with the world setting")
             appendLine("5. If multiple characters are present, you may respond as any or all of them as appropriate")
             appendLine("6. Write in a narrative style, describing actions, dialogue, and scenes naturally")
+            
+            // Add dialogue format instructions when separateCharacterDialogue is enabled
+            if (currentSettings.separateCharacterDialogue) {
+                appendLine()
+                appendLine("=== DIALOGUE FORMAT ===")
+                appendLine("When a character speaks, format their dialogue as:")
+                appendLine("[Character Name]:\"What they say\"")
+                appendLine()
+                appendLine("Example:")
+                appendLine("[Eve]:\"What are you doing here?\"")
+                appendLine()
+                appendLine("Use this format for ALL direct character speech. Narrative descriptions should NOT use this format.")
+            }
         }
     }
     

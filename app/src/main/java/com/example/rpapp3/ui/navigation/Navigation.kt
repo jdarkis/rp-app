@@ -211,6 +211,13 @@ fun AppNavigation(navController: NavHostController) {
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToSettings = {
                     navController.navigate(Routes.ChatSettings.createRoute(worldId, chatId))
+                },
+                onNavigateToCharacter = { characterId ->
+                    navController.navigate(Routes.CharacterDetail.createRoute(worldId, characterId))
+                },
+                onNavigateToCreateCharacter = { prefillName ->
+                    // Navigate to create character (prefillName can be used later for pre-filling)
+                    navController.navigate(Routes.CreateCharacter.createRoute(worldId))
                 }
             )
         }

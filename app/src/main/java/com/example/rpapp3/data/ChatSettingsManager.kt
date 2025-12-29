@@ -66,6 +66,7 @@ class ChatSettingsManager private constructor(private val context: Context) {
     private val SAFETY_HATE_SPEECH_KEY = stringPreferencesKey("safety_hate_speech")
     private val SAFETY_SEXUALLY_EXPLICIT_KEY = stringPreferencesKey("safety_sexually_explicit")
     private val SAFETY_DANGEROUS_CONTENT_KEY = stringPreferencesKey("safety_dangerous_content")
+    private val SEPARATE_CHARACTER_DIALOGUE_KEY = booleanPreferencesKey("separate_character_dialogue")
 
     // Message Display Settings
     val filterMode: Flow<MessageFilterMode> = context.chatSettingsDataStore.data
@@ -175,6 +176,12 @@ class ChatSettingsManager private constructor(private val context: Context) {
             }
         }
 
+    // Character Dialogue Separation Setting
+    val separateCharacterDialogue: Flow<Boolean> = context.chatSettingsDataStore.data
+        .map { preferences ->
+            preferences[SEPARATE_CHARACTER_DIALOGUE_KEY] ?: true // Default ON
+        }
+
     // Setters for Message Display
     suspend fun setFilterMode(mode: MessageFilterMode) {
         context.chatSettingsDataStore.edit { preferences ->
@@ -268,6 +275,12 @@ class ChatSettingsManager private constructor(private val context: Context) {
         }
     }
 
+    suspend fun setSeparateCharacterDialogue(enabled: Boolean) {
+        context.chatSettingsDataStore.edit { preferences ->
+            preferences[SEPARATE_CHARACTER_DIALOGUE_KEY] = enabled
+        }
+    }
+
     /**
      * Restore all settings to their default values
      */
@@ -288,6 +301,7 @@ class ChatSettingsManager private constructor(private val context: Context) {
             preferences[SAFETY_HATE_SPEECH_KEY] = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE.name
             preferences[SAFETY_SEXUALLY_EXPLICIT_KEY] = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE.name
             preferences[SAFETY_DANGEROUS_CONTENT_KEY] = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE.name
+            preferences[SEPARATE_CHARACTER_DIALOGUE_KEY] = true
         }
     }
 
@@ -308,7 +322,8 @@ class ChatSettingsManager private constructor(private val context: Context) {
             safetyHarassment = safetyHarassment.first(),
             safetyHateSpeech = safetyHateSpeech.first(),
             safetySexuallyExplicit = safetySexuallyExplicit.first(),
-            safetyDangerousContent = safetyDangerousContent.first()
+            safetyDangerousContent = safetyDangerousContent.first(),
+            separateCharacterDialogue = separateCharacterDialogue.first()
         )
     }
 }
@@ -328,5 +343,6 @@ data class ChatSettings(
     val safetyHarassment: SafetyThreshold = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE,
     val safetyHateSpeech: SafetyThreshold = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE,
     val safetySexuallyExplicit: SafetyThreshold = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE,
-    val safetyDangerousContent: SafetyThreshold = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE
+    val safetyDangerousContent: SafetyThreshold = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    val separateCharacterDialogue: Boolean = true
 )

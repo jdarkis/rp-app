@@ -6,6 +6,7 @@ import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -38,6 +39,60 @@ import com.example.rpapp3.data.model.Character
 import com.example.rpapp3.viewmodel.ChatViewModel
 import kotlinx.coroutines.launch
 
+/**
+ * Represents a segment of text in an AI message, either narrator text or character dialogue
+ */
+data class DisplaySegment(
+    val text: String,
+    val isCharacterDialogue: Boolean,
+    val characterName: String? = null
+)
+
+/**
+ * Parse message text to extract character dialogue segments using [CharacterName]:"dialogue" format
+ */
+fun parseDialogueSegments(text: String): List<DisplaySegment> {
+    val segments = mutableListOf<DisplaySegment>()
+    // Regex to match [Character Name]:"dialogue" pattern
+    // Allows for any characters in character name, and dialogue in double quotes
+    val pattern = Regex("""\[([^\]]+)\]:\s*"([^"]*)"""".trimIndent())
+    
+    var lastEnd = 0
+    val matches = pattern.findAll(text)
+    
+    for (match in matches) {
+        // Add narrator text before this dialogue
+        if (match.range.first > lastEnd) {
+            val narratorText = text.substring(lastEnd, match.range.first).trim()
+            if (narratorText.isNotEmpty()) {
+                segments.add(DisplaySegment(narratorText, isCharacterDialogue = false))
+            }
+        }
+        
+        // Add character dialogue
+        val characterName = match.groupValues[1]
+        val dialogue = match.groupValues[2]
+        segments.add(DisplaySegment(dialogue, isCharacterDialogue = true, characterName = characterName))
+        
+        lastEnd = match.range.last + 1
+    }
+    
+    // Add remaining narrator text
+    if (lastEnd < text.length) {
+        val remainingText = text.substring(lastEnd).trim()
+        if (remainingText.isNotEmpty()) {
+            segments.add(DisplaySegment(remainingText, isCharacterDialogue = false))
+        }
+    }
+    
+    // If no patterns found, return the whole text as narrator
+    if (segments.isEmpty()) {
+        segments.add(DisplaySegment(text, isCharacterDialogue = false))
+    }
+    
+    return segments
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
@@ -45,10 +100,13 @@ fun ChatScreen(
     worldId: String,
     viewModel: ChatViewModel = viewModel(),
     onNavigateBack: () -> Unit,
-    onNavigateToSettings: () -> Unit
+    onNavigateToSettings: () -> Unit,
+    onNavigateToCharacter: (String) -> Unit,
+    onNavigateToCreateCharacter: (String?) -> Unit // Optional name to pre-fill
 ) {
     val currentChat by viewModel.currentChat.collectAsState()
     val characters by viewModel.characters.collectAsState()
+    val worldCharacters by viewModel.worldCharacters.collectAsState()
     val messages = viewModel.messages
     val isLoading = viewModel.isLoading
     
@@ -61,6 +119,7 @@ fun ChatScreen(
     val filterMode by chatSettingsManager.filterMode.collectAsState(initial = MessageFilterMode.OFF)
     val customDelimiter by chatSettingsManager.customDelimiter.collectAsState(initial = ChatSettingsManager.DEFAULT_DELIMITER)
     val paragraphCount by chatSettingsManager.paragraphCount.collectAsState(initial = ChatSettingsManager.DEFAULT_PARAGRAPH_COUNT)
+    val separateCharacterDialogue by chatSettingsManager.separateCharacterDialogue.collectAsState(initial = true)
     
     // Initialize ViewModel with context for API key management
     LaunchedEffect(Unit) {
@@ -153,9 +212,11 @@ fun ChatScreen(
                     MessageBubble(
                         message = message,
                         character = characters.find { it.id == message.characterId },
+                        allCharacters = worldCharacters,
                         filterMode = filterMode,
                         customDelimiter = customDelimiter,
                         paragraphCount = paragraphCount,
+                        separateDialogue = separateCharacterDialogue,
                         onCopy = { text ->
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             clipboard.setPrimaryClip(ClipData.newPlainText("Message", text))
@@ -164,7 +225,19 @@ fun ChatScreen(
                         onDelete = { viewModel.deleteMessage(message.id) },
                         onRegenerate = if (!message.isUser) {
                             { viewModel.regenerateResponse(message.id) }
-                        } else null
+                        } else null,
+                        onCharacterClick = { characterName ->
+                            // Find character by name in world characters
+                            val matchedChar = worldCharacters.find { 
+                                it.name.equals(characterName, ignoreCase = true) 
+                            }
+                            if (matchedChar != null) {
+                                onNavigateToCharacter(matchedChar.id)
+                            } else {
+                                // Navigate to create character with pre-filled name
+                                onNavigateToCreateCharacter(characterName)
+                            }
+                        }
                     )
                 }
                 
@@ -197,34 +270,19 @@ fun ChatScreen(
 fun MessageBubble(
     message: ChatMessage,
     character: Character?,
+    allCharacters: List<Character> = emptyList(),
     filterMode: MessageFilterMode = MessageFilterMode.OFF,
     customDelimiter: String = "***",
     paragraphCount: Int = 1,
+    separateDialogue: Boolean = true,
     onCopy: (String) -> Unit,
     onDelete: () -> Unit,
-    onRegenerate: (() -> Unit)?
+    onRegenerate: (() -> Unit)?,
+    onCharacterClick: ((String) -> Unit)? = null
 ) {
     val isUser = message.isUser
     var showMenu by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
-    
-    val bubbleColor = if (isUser) {
-        MaterialTheme.colorScheme.primary
-    } else {
-        MaterialTheme.colorScheme.secondaryContainer
-    }
-    
-    val textColor = if (isUser) {
-        MaterialTheme.colorScheme.onPrimary
-    } else {
-        MaterialTheme.colorScheme.onSecondaryContainer
-    }
-    
-    val shape = if (isUser) {
-        RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp)
-    } else {
-        RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp)
-    }
     
     // Delete confirmation dialog
     if (showDeleteConfirmDialog) {
@@ -250,163 +308,226 @@ fun MessageBubble(
         )
     }
     
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
-        verticalAlignment = Alignment.Bottom
-    ) {
-        // Avatar for AI messages - show Narrator icon or Character avatar
-        if (!isUser) {
-            val isNarrator = message.characterName.equals("Narrator", ignoreCase = true)
-            
-            if (isNarrator) {
-                // Show book icon for narrator
-                Surface(
-                    modifier = Modifier.size(36.dp),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.tertiaryContainer
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Filled.MenuBook,
-                            contentDescription = "Narrator",
-                            modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.onTertiaryContainer
-                        )
-                    }
-                }
-            } else if (character?.photoUrls?.isNotEmpty() == true) {
-                AsyncImage(
-                    model = character.photoUrls.first(),
-                    contentDescription = character.name,
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                    contentScale = ContentScale.Crop
-                )
-            } else {
-                Surface(
-                    modifier = Modifier.size(36.dp),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.secondaryContainer
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = (message.characterName ?: "AI").take(1).uppercase(),
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
-                    }
+    // Get display text based on filter mode (for AI messages only)
+    val displayText = if (!isUser) {
+        when (filterMode) {
+            MessageFilterMode.OFF -> message.text
+            MessageFilterMode.LAST_N_PARAGRAPHS -> {
+                val paragraphs = message.text.split("\n\n").filter { it.isNotBlank() }
+                if (paragraphs.isNotEmpty()) {
+                    paragraphs.takeLast(paragraphCount).joinToString("\n\n")
+                } else {
+                    val lines = message.text.split("\n").filter { it.isNotBlank() }
+                    lines.takeLast(paragraphCount).joinToString("\n")
                 }
             }
-            Spacer(modifier = Modifier.width(8.dp))
+            MessageFilterMode.AFTER_DELIMITER -> {
+                if (customDelimiter.isNotEmpty() && message.text.contains(customDelimiter)) {
+                    message.text.substringAfterLast(customDelimiter).trim()
+                        .ifEmpty { message.text }
+                } else {
+                    message.text
+                }
+            }
         }
-        
-        Column(
-            horizontalAlignment = if (isUser) Alignment.End else Alignment.Start,
-            modifier = Modifier.widthIn(max = 300.dp)
-        ) {
-            // Character name for AI messages
-            if (!isUser && message.characterName != null) {
-                Text(
-                    text = message.characterName,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
-                )
+    } else {
+        message.text
+    }
+    
+    // Parse segments if this is an AI message and dialogue separation is enabled
+    val segments = if (!isUser && separateDialogue) {
+        parseDialogueSegments(displayText)
+    } else {
+        listOf(DisplaySegment(displayText, isCharacterDialogue = false))
+    }
+    
+    // Render each segment
+    Column(
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        segments.forEachIndexed { index, segment ->
+            val isLastSegment = index == segments.size - 1
+            
+            // Find matching character for dialogue segments
+            val segmentCharacter = if (segment.isCharacterDialogue && segment.characterName != null) {
+                allCharacters.find { it.name.equals(segment.characterName, ignoreCase = true) }
+            } else null
+            
+            val segmentIsNarrator = !segment.isCharacterDialogue
+            
+            val bubbleColor = if (isUser) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.secondaryContainer
             }
             
-            Box {
-                Surface(
-                    shape = shape,
-                    color = bubbleColor,
-                    shadowElevation = 2.dp,
-                    tonalElevation = if (isUser) 0.dp else 1.dp,
-                    modifier = Modifier.combinedClickable(
-                        onClick = { },
-                        onLongClick = { showMenu = true }
-                    )
-                ) {
-                    // Get text to display based on filter mode
-                    val displayText = if (!message.isUser) {
-                        when (filterMode) {
-                            MessageFilterMode.OFF -> message.text
-                            MessageFilterMode.LAST_N_PARAGRAPHS -> {
-                                // Split by double newline (paragraphs)
-                                val paragraphs = message.text.split("\n\n").filter { it.isNotBlank() }
-                                if (paragraphs.isNotEmpty()) {
-                                    paragraphs.takeLast(paragraphCount).joinToString("\n\n")
-                                } else {
-                                    // Fallback to single newline split
-                                    val lines = message.text.split("\n").filter { it.isNotBlank() }
-                                    lines.takeLast(paragraphCount).joinToString("\n")
-                                }
-                            }
-                            MessageFilterMode.AFTER_DELIMITER -> {
-                                if (customDelimiter.isNotEmpty() && message.text.contains(customDelimiter)) {
-                                    message.text.substringAfterLast(customDelimiter).trim()
-                                        .ifEmpty { message.text }
-                                } else {
-                                    message.text
-                                }
+            val textColor = if (isUser) {
+                MaterialTheme.colorScheme.onPrimary
+            } else {
+                MaterialTheme.colorScheme.onSecondaryContainer
+            }
+            
+            val shape = if (isUser) {
+                RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp)
+            } else {
+                RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp)
+            }
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
+                verticalAlignment = Alignment.Bottom
+            ) {
+                // Avatar for AI messages
+                if (!isUser) {
+                    if (segmentIsNarrator) {
+                        // Show book icon for narrator (not clickable)
+                        Surface(
+                            modifier = Modifier.size(36.dp),
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.tertiaryContainer
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Filled.MenuBook,
+                                    contentDescription = "Narrator",
+                                    modifier = Modifier.size(20.dp),
+                                    tint = MaterialTheme.colorScheme.onTertiaryContainer
+                                )
                             }
                         }
                     } else {
-                        message.text
+                        // Character avatar - make it clickable
+                        val avatarModifier = if (onCharacterClick != null && segment.characterName != null) {
+                            Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .clickable { onCharacterClick(segment.characterName) }
+                        } else {
+                            Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                        }
+                        
+                        // Check both profilePictureUrl and photoUrls for avatar
+                        val avatarUrl = segmentCharacter?.profilePictureUrl 
+                            ?: segmentCharacter?.photoUrls?.firstOrNull()
+                        
+                        if (avatarUrl != null) {
+                            // Show character photo
+                            AsyncImage(
+                                model = avatarUrl,
+                                contentDescription = segmentCharacter?.name ?: segment.characterName,
+                                modifier = avatarModifier
+                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            // Show initial for character without photo
+                            Surface(
+                                modifier = avatarModifier,
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primaryContainer
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(
+                                        text = (segment.characterName ?: "AI").take(1).uppercase(),
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                }
+                            }
+                        }
                     }
-                    
-                    Text(
-                        text = displayText,
-                        color = textColor,
-                        modifier = Modifier.padding(12.dp),
-                        style = MaterialTheme.typography.bodyMedium
-                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                 }
                 
-                // Dropdown menu for actions
-                DropdownMenu(
-                    expanded = showMenu,
-                    onDismissRequest = { showMenu = false }
+                Column(
+                    horizontalAlignment = if (isUser) Alignment.End else Alignment.Start,
+                    modifier = Modifier.widthIn(max = 300.dp)
                 ) {
-                    DropdownMenuItem(
-                        text = { Text("Copy") },
-                        onClick = {
-                            showMenu = false
-                            onCopy(message.text)
-                        },
-                        leadingIcon = {
-                            Icon(Icons.Default.ContentCopy, contentDescription = null)
-                        }
-                    )
-                    
-                    DropdownMenuItem(
-                        text = { Text("Delete") },
-                        onClick = {
-                            showMenu = false
-                            showDeleteConfirmDialog = true
-                        },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Default.Delete,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error
+                    // Show character/narrator name
+                    if (!isUser) {
+                        val nameToShow = if (segmentIsNarrator) "Narrator" else segment.characterName
+                        if (nameToShow != null) {
+                            Text(
+                                text = nameToShow,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (segmentIsNarrator) 
+                                    MaterialTheme.colorScheme.tertiary 
+                                else 
+                                    MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
                             )
                         }
-                    )
+                    }
                     
-                    // Regenerate option only for AI messages
-                    if (onRegenerate != null) {
-                        DropdownMenuItem(
-                            text = { Text("Regenerate") },
-                            onClick = {
-                                showMenu = false
-                                onRegenerate()
-                            },
-                            leadingIcon = {
-                                Icon(Icons.Default.Refresh, contentDescription = null)
+                    Box {
+                        Surface(
+                            shape = shape,
+                            color = bubbleColor,
+                            shadowElevation = 2.dp,
+                            tonalElevation = if (isUser) 0.dp else 1.dp,
+                            modifier = Modifier.combinedClickable(
+                                onClick = { },
+                                onLongClick = { if (isLastSegment) showMenu = true }
+                            )
+                        ) {
+                            Text(
+                                text = segment.text,
+                                color = textColor,
+                                modifier = Modifier.padding(12.dp),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                        
+                        // Dropdown menu only on last segment
+                        if (isLastSegment) {
+                            DropdownMenu(
+                                expanded = showMenu,
+                                onDismissRequest = { showMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Copy") },
+                                    onClick = {
+                                        showMenu = false
+                                        onCopy(message.text)
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.ContentCopy, contentDescription = null)
+                                    }
+                                )
+                                
+                                DropdownMenuItem(
+                                    text = { Text("Delete") },
+                                    onClick = {
+                                        showMenu = false
+                                        showDeleteConfirmDialog = true
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.Delete,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.error
+                                        )
+                                    }
+                                )
+                                
+                                if (onRegenerate != null) {
+                                    DropdownMenuItem(
+                                        text = { Text("Regenerate") },
+                                        onClick = {
+                                            showMenu = false
+                                            onRegenerate()
+                                        },
+                                        leadingIcon = {
+                                            Icon(Icons.Default.Refresh, contentDescription = null)
+                                        }
+                                    )
+                                }
                             }
-                        )
+                        }
                     }
                 }
             }

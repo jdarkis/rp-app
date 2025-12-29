@@ -64,6 +64,7 @@ fun ChatSettingsScreen(
     val safetyHateSpeech by chatSettingsManager.safetyHateSpeech.collectAsState(initial = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE)
     val safetySexuallyExplicit by chatSettingsManager.safetySexuallyExplicit.collectAsState(initial = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE)
     val safetyDangerousContent by chatSettingsManager.safetyDangerousContent.collectAsState(initial = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE)
+    val separateCharacterDialogue by chatSettingsManager.separateCharacterDialogue.collectAsState(initial = true)
     
     // Local state for inputs
     var delimiterInput by remember(customDelimiter) { mutableStateOf(customDelimiter) }
@@ -175,6 +176,23 @@ fun ChatSettingsScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    
+                    // Separate Character Dialogue Toggle
+                    SettingsToggle(
+                        title = "Separate Character Dialogue",
+                        description = "Display character speech as individual messages with avatars",
+                        checked = separateCharacterDialogue,
+                        onCheckedChange = { scope.launch { chatSettingsManager.setSeparateCharacterDialogue(it) } }
+                    )
+                    
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                    
+                    Text(
+                        text = "Message filtering",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(bottom = 4.dp)
                     )
                     
                     FilterModeOption(
