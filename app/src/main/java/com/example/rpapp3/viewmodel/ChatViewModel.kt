@@ -328,6 +328,27 @@ class ChatViewModel : ViewModel() {
                 appendLine()
                 appendLine("Use this format for ALL direct character speech. Narrative descriptions should NOT use this format.")
             }
+            
+            // Add choices instructions when provideChoicesEnabled is enabled
+            if (currentSettings.provideChoicesEnabled) {
+                appendLine()
+                appendLine("=== CHOICES FORMAT ===")
+                appendLine("Provide Choices (Actions & Dialogue): At the end of every response, you MUST provide choices.")
+                appendLine("Action Choices: Always provide three distinct, optional actions I could take next.")
+                appendLine("Dialogue Choices: Whenever I am in a situation where I would speak, provide three sample dialogue options.")
+                appendLine()
+                appendLine("Format your choices EXACTLY like this at the END of your response:")
+                appendLine("[ACTIONS]")
+                appendLine("1. First action option")
+                appendLine("2. Second action option")
+                appendLine("3. Third action option")
+                appendLine("[DIALOGUE]")
+                appendLine("a. \"First dialogue option\"")
+                appendLine("b. \"Second dialogue option\"")
+                appendLine("c. \"Third dialogue option\"")
+                appendLine()
+                appendLine("IMPORTANT: Always include the [ACTIONS] and [DIALOGUE] markers. If no dialogue is appropriate, you may omit the [DIALOGUE] section.")
+            }
         }
     }
     

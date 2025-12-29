@@ -5,6 +5,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -47,6 +49,85 @@ data class DisplaySegment(
     val isCharacterDialogue: Boolean,
     val characterName: String? = null
 )
+
+/**
+ * Represents a parsed choice from AI message
+ */
+enum class ChoiceType { ACTION, DIALOGUE }
+
+data class ChoiceItem(
+    val type: ChoiceType,
+    val label: String,
+    val text: String
+)
+
+/**
+ * Parse choices from AI response text
+ * Returns Pair of (list of choices, main text without choices section)
+ */
+fun parseChoices(text: String): Pair<List<ChoiceItem>, String> {
+    val choices = mutableListOf<ChoiceItem>()
+    
+    // Find the [ACTIONS] marker
+    val actionsIndex = text.indexOf("[ACTIONS]")
+    if (actionsIndex == -1) {
+        return Pair(emptyList(), text)
+    }
+    
+    // Main text is everything before [ACTIONS]
+    val mainText = text.substring(0, actionsIndex).trim()
+    
+    // Get the choices section
+    val choicesSection = text.substring(actionsIndex)
+    
+    // Find [DIALOGUE] marker if it exists
+    val dialogueIndex = choicesSection.indexOf("[DIALOGUE]")
+    
+    val actionsText = if (dialogueIndex != -1) {
+        choicesSection.substring("[ACTIONS]".length, dialogueIndex)
+    } else {
+        choicesSection.substring("[ACTIONS]".length)
+    }
+    
+    val dialogueText = if (dialogueIndex != -1) {
+        choicesSection.substring(dialogueIndex + "[DIALOGUE]".length)
+    } else {
+        ""
+    }
+    
+    // Parse action choices (numbered: 1., 2., 3.)
+    val actionPattern = Regex("""(\d)\.\s*(.+)""")
+    actionsText.lines().forEach { line ->
+        val match = actionPattern.find(line.trim())
+        if (match != null) {
+            choices.add(ChoiceItem(
+                type = ChoiceType.ACTION,
+                label = "${match.groupValues[1]}.",
+                text = match.groupValues[2].trim()
+            ))
+        }
+    }
+    
+    // Parse dialogue choices (lettered: a., b., c.)
+    val dialoguePattern = Regex("""([a-c])\.\s*"?([^"]+)"?""")
+    dialogueText.lines().forEach { line ->
+        val match = dialoguePattern.find(line.trim())
+        if (match != null) {
+            // Remove surrounding quotes if present
+            var dialogueContent = match.groupValues[2].trim()
+            if (dialogueContent.endsWith("\"")) {
+                dialogueContent = dialogueContent.dropLast(1)
+            }
+            choices.add(ChoiceItem(
+                type = ChoiceType.DIALOGUE,
+                label = "${match.groupValues[1]}.",
+                text = dialogueContent
+            ))
+        }
+    }
+    
+    return Pair(choices, mainText)
+}
 
 /**
  * Parse message text to extract character dialogue segments using [CharacterName]:"dialogue" format
@@ -120,6 +201,10 @@ fun ChatScreen(
     val customDelimiter by chatSettingsManager.customDelimiter.collectAsState(initial = ChatSettingsManager.DEFAULT_DELIMITER)
     val paragraphCount by chatSettingsManager.paragraphCount.collectAsState(initial = ChatSettingsManager.DEFAULT_PARAGRAPH_COUNT)
     val separateCharacterDialogue by chatSettingsManager.separateCharacterDialogue.collectAsState(initial = true)
+    val provideChoicesEnabled by chatSettingsManager.provideChoicesEnabled.collectAsState(initial = true)
+    
+    // State for pending input text (from choice selection)
+    var pendingInputText by remember { mutableStateOf<String?>(null) }
     
     // Initialize ViewModel with context for API key management
     LaunchedEffect(Unit) {
@@ -217,6 +302,7 @@ fun ChatScreen(
                         customDelimiter = customDelimiter,
                         paragraphCount = paragraphCount,
                         separateDialogue = separateCharacterDialogue,
+                        provideChoicesEnabled = provideChoicesEnabled,
                         onCopy = { text ->
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             clipboard.setPrimaryClip(ClipData.newPlainText("Message", text))
@@ -237,6 +323,9 @@ fun ChatScreen(
                                 // Navigate to create character with pre-filled name
                                 onNavigateToCreateCharacter(characterName)
                             }
+                        },
+                        onChoiceSelected = { choiceText ->
+                            pendingInputText = choiceText
                         }
                     )
                 }
@@ -259,7 +348,9 @@ fun ChatScreen(
                         }
                     }
                 },
-                isLoading = isLoading
+                isLoading = isLoading,
+                externalText = pendingInputText,
+                onExternalTextConsumed = { pendingInputText = null }
             )
         }
     }
@@ -275,10 +366,12 @@ fun MessageBubble(
     customDelimiter: String = "***",
     paragraphCount: Int = 1,
     separateDialogue: Boolean = true,
+    provideChoicesEnabled: Boolean = true,
     onCopy: (String) -> Unit,
     onDelete: () -> Unit,
     onRegenerate: (() -> Unit)?,
-    onCharacterClick: ((String) -> Unit)? = null
+    onCharacterClick: ((String) -> Unit)? = null,
+    onChoiceSelected: ((String) -> Unit)? = null
 ) {
     val isUser = message.isUser
     var showMenu by remember { mutableStateOf(false) }
@@ -335,10 +428,17 @@ fun MessageBubble(
     }
     
     // Parse segments if this is an AI message and dialogue separation is enabled
-    val segments = if (!isUser && separateDialogue) {
-        parseDialogueSegments(displayText)
+    // First, parse choices if enabled
+    val (choices, textWithoutChoices) = if (!isUser && provideChoicesEnabled) {
+        parseChoices(displayText)
     } else {
-        listOf(DisplaySegment(displayText, isCharacterDialogue = false))
+        Pair(emptyList(), displayText)
+    }
+    
+    val segments = if (!isUser && separateDialogue) {
+        parseDialogueSegments(textWithoutChoices)
+    } else {
+        listOf(DisplaySegment(textWithoutChoices, isCharacterDialogue = false))
     }
     
     // Render each segment
@@ -532,6 +632,106 @@ fun MessageBubble(
                 }
             }
         }
+        
+        // Render choice buttons if available (for AI messages only)
+        if (!isUser && choices.isNotEmpty() && onChoiceSelected != null) {
+            ChoiceButtons(
+                choices = choices,
+                onChoiceSelected = onChoiceSelected
+            )
+        }
+    }
+}
+
+/**
+ * Composable for displaying action and dialogue choice buttons
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun ChoiceButtons(
+    choices: List<ChoiceItem>,
+    onChoiceSelected: (String) -> Unit
+) {
+    val actionChoices = choices.filter { it.type == ChoiceType.ACTION }
+    val dialogueChoices = choices.filter { it.type == ChoiceType.DIALOGUE }
+    
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 44.dp, top = 8.dp), // Align with message content
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        // Action choices
+        if (actionChoices.isNotEmpty()) {
+            Text(
+                text = "Actions",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                actionChoices.forEach { choice ->
+                    SuggestionChip(
+                        onClick = { onChoiceSelected(choice.text) },
+                        label = { 
+                            Text(
+                                text = choice.text,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        },
+                        icon = {
+                            Text(
+                                text = choice.label,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    )
+                }
+            }
+        }
+        
+        // Dialogue choices
+        if (dialogueChoices.isNotEmpty()) {
+            Text(
+                text = "Dialogue",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.tertiary,
+                modifier = Modifier.padding(bottom = 4.dp, top = if (actionChoices.isNotEmpty()) 4.dp else 0.dp)
+            )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                dialogueChoices.forEach { choice ->
+                    SuggestionChip(
+                        onClick = { onChoiceSelected(choice.text) },
+                        label = { 
+                            Text(
+                                text = "\"${choice.text}\"",
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        },
+                        icon = {
+                            Text(
+                                text = choice.label,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.tertiary
+                            )
+                        },
+                        colors = SuggestionChipDefaults.suggestionChipColors(
+                            containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
+                        )
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -572,9 +772,19 @@ fun LoadingIndicator() {
 @Composable
 fun ChatInput(
     onSendMessage: (String) -> Unit,
-    isLoading: Boolean
+    isLoading: Boolean,
+    externalText: String? = null,
+    onExternalTextConsumed: (() -> Unit)? = null
 ) {
     var inputText by remember { mutableStateOf("") }
+    
+    // Handle external text input (from choice selection)
+    LaunchedEffect(externalText) {
+        if (externalText != null) {
+            inputText = externalText
+            onExternalTextConsumed?.invoke()
+        }
+    }
     
     Surface(
         tonalElevation = 3.dp,

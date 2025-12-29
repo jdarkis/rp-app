@@ -65,6 +65,7 @@ fun ChatSettingsScreen(
     val safetySexuallyExplicit by chatSettingsManager.safetySexuallyExplicit.collectAsState(initial = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE)
     val safetyDangerousContent by chatSettingsManager.safetyDangerousContent.collectAsState(initial = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE)
     val separateCharacterDialogue by chatSettingsManager.separateCharacterDialogue.collectAsState(initial = true)
+    val provideChoicesEnabled by chatSettingsManager.provideChoicesEnabled.collectAsState(initial = true)
     
     // Local state for inputs
     var delimiterInput by remember(customDelimiter) { mutableStateOf(customDelimiter) }
@@ -184,6 +185,14 @@ fun ChatSettingsScreen(
                         description = "Display character speech as individual messages with avatars",
                         checked = separateCharacterDialogue,
                         onCheckedChange = { scope.launch { chatSettingsManager.setSeparateCharacterDialogue(it) } }
+                    )
+                    
+                    // Provide Action & Dialogue Choices Toggle
+                    SettingsToggle(
+                        title = "Provide Action & Dialogue Choices",
+                        description = "AI will provide clickable action and dialogue options at the end of messages",
+                        checked = provideChoicesEnabled,
+                        onCheckedChange = { scope.launch { chatSettingsManager.setProvideChoicesEnabled(it) } }
                     )
                     
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
