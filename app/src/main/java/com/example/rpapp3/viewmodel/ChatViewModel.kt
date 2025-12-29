@@ -6,6 +6,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.rpapp3.data.ApiKeyManager
+import com.example.rpapp3.data.ChatSettings
+import com.example.rpapp3.data.ChatSettingsManager
+import com.example.rpapp3.data.SafetyThreshold
 import com.example.rpapp3.data.model.Character
 import com.example.rpapp3.data.model.Chat
 import com.example.rpapp3.data.model.ChatMessage
@@ -14,7 +17,10 @@ import com.example.rpapp3.data.repository.CharacterRepository
 import com.example.rpapp3.data.repository.ChatRepository
 import com.example.rpapp3.data.repository.WorldRepository
 import com.google.ai.client.generativeai.GenerativeModel
+import com.google.ai.client.generativeai.type.BlockThreshold
 import com.google.ai.client.generativeai.type.FunctionCallingConfig
+import com.google.ai.client.generativeai.type.HarmCategory
+import com.google.ai.client.generativeai.type.SafetySetting
 import com.google.ai.client.generativeai.type.ToolConfig
 import com.google.ai.client.generativeai.type.content
 import com.google.ai.client.generativeai.type.generationConfig
@@ -28,7 +34,9 @@ import kotlinx.coroutines.launch
 class ChatViewModel : ViewModel() {
     
     private var apiKeyManager: ApiKeyManager? = null
+    private var chatSettingsManager: ChatSettingsManager? = null
     private var currentApiKey: String? = null
+    private var currentSettings: ChatSettings = ChatSettings()
     
     private val worldRepository = WorldRepository()
     private val characterRepository = CharacterRepository()
@@ -56,20 +64,27 @@ class ChatViewModel : ViewModel() {
     private val _error = mutableStateOf<String?>(null)
     val error: String? get() = _error.value
     
+    // Exposed for viewing in settings
+    private val _systemPrompt = MutableStateFlow<String?>(null)
+    val systemPrompt: StateFlow<String?> = _systemPrompt
+    
     private var generativeModel: GenerativeModel? = null
     private var chatSession: com.google.ai.client.generativeai.Chat? = null
     
     /**
-     * Initialize the API key manager with context
+     * Initialize the API key manager and chat settings manager with context
      */
     fun initializeWithContext(context: Context) {
         if (apiKeyManager == null) {
             apiKeyManager = ApiKeyManager.getInstance(context)
+            chatSettingsManager = ChatSettingsManager.getInstance(context)
             viewModelScope.launch {
                 apiKeyManager?.initializeDefaults()
                 // Reset to first key on app start - quotas may have reset
                 apiKeyManager?.resetKeyIndex()
                 currentApiKey = apiKeyManager?.getCurrentApiKey()
+                // Load current settings
+                currentSettings = chatSettingsManager?.getCurrentSettings() ?: ChatSettings()
             }
         }
     }
@@ -167,10 +182,13 @@ class ChatViewModel : ViewModel() {
         }
     }
     
-    private fun initializeAI() {
+    private suspend fun initializeAI() {
         val world = _world.value
         val characters = _characters.value
         val apiKey = currentApiKey
+        
+        // Reload settings in case they changed
+        currentSettings = chatSettingsManager?.getCurrentSettings() ?: ChatSettings()
         
         // Characters are optional - proceed even with no characters
         if (apiKey.isNullOrBlank()) {
@@ -180,16 +198,22 @@ class ChatViewModel : ViewModel() {
         
         // Build system instructions from world and characters
         val systemInstructions = buildSystemInstructions(world, characters)
+        _systemPrompt.value = systemInstructions
+        
+        // Build safety settings from user preferences
+        val safetySettings = buildSafetySettings()
         
         generativeModel = GenerativeModel(
             modelName = "gemini-3-flash-preview",
             apiKey = apiKey,
             generationConfig = generationConfig {
-                temperature = 0.9f
-                topP = 0.95f
-                maxOutputTokens = 16384
+                temperature = currentSettings.temperature
+                topP = currentSettings.topP
+                topK = currentSettings.topK
+                maxOutputTokens = currentSettings.maxOutputTokens
             },
             systemInstruction = content { text(systemInstructions) },
+            safetySettings = safetySettings,
             // IMPORTANT: Disable all tools including Google Search grounding
             // This prevents quota errors from the search/grounding feature
             tools = emptyList(),
@@ -208,6 +232,27 @@ class ChatViewModel : ViewModel() {
         }
         
         chatSession = generativeModel?.startChat(history = history)
+    }
+    
+    /**
+     * Build safety settings from user preferences
+     */
+    private fun buildSafetySettings(): List<SafetySetting> {
+        fun mapThreshold(threshold: SafetyThreshold): BlockThreshold {
+            return when (threshold) {
+                SafetyThreshold.BLOCK_NONE -> BlockThreshold.NONE
+                SafetyThreshold.BLOCK_ONLY_HIGH -> BlockThreshold.ONLY_HIGH
+                SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE -> BlockThreshold.MEDIUM_AND_ABOVE
+                SafetyThreshold.BLOCK_LOW_AND_ABOVE -> BlockThreshold.LOW_AND_ABOVE
+            }
+        }
+        
+        return listOf(
+            SafetySetting(HarmCategory.HARASSMENT, mapThreshold(currentSettings.safetyHarassment)),
+            SafetySetting(HarmCategory.HATE_SPEECH, mapThreshold(currentSettings.safetyHateSpeech)),
+            SafetySetting(HarmCategory.SEXUALLY_EXPLICIT, mapThreshold(currentSettings.safetySexuallyExplicit)),
+            SafetySetting(HarmCategory.DANGEROUS_CONTENT, mapThreshold(currentSettings.safetyDangerousContent))
+        )
     }
     
     private fun buildSystemInstructions(world: World?, characters: List<Character>): String {
@@ -322,17 +367,46 @@ class ChatViewModel : ViewModel() {
                 return
             }
             
-            // Get AI response
-            val response = chatSession?.sendMessage(userMessage)
-            
-            response?.text?.let { responseText ->
-                // Parse the response to create separate messages for narrator and characters
-                val parsedMessages = parseResponseIntoMessages(responseText, chatId)
+            // Check if streaming is enabled
+            if (currentSettings.streamingEnabled) {
+                // Streaming mode
+                val streamingAiMessage = ChatMessage(
+                    chatId = chatId,
+                    text = "",
+                    isUser = false,
+                    characterId = null,
+                    characterName = "Narrator"
+                )
+                _messages.add(streamingAiMessage)
+                val messageIndex = _messages.size - 1
                 
-                parsedMessages.forEach { aiMessage ->
-                    _messages.add(aiMessage)
-                    // Save AI message to Firestore
-                    chatRepository.addMessage(aiMessage)
+                val responseFlow = chatSession?.sendMessageStream(userMessage)
+                val fullResponse = StringBuilder()
+                
+                responseFlow?.collect { chunk ->
+                    chunk.text?.let { text ->
+                        fullResponse.append(text)
+                        // Update the message in place for streaming effect
+                        _messages[messageIndex] = streamingAiMessage.copy(text = fullResponse.toString())
+                    }
+                }
+                
+                // Save final message to Firestore
+                val finalMessage = _messages[messageIndex]
+                chatRepository.addMessage(finalMessage)
+            } else {
+                // Non-streaming mode (original behavior)
+                val response = chatSession?.sendMessage(userMessage)
+                
+                response?.text?.let { responseText ->
+                    // Parse the response to create separate messages for narrator and characters
+                    val parsedMessages = parseResponseIntoMessages(responseText, chatId)
+                    
+                    parsedMessages.forEach { aiMessage ->
+                        _messages.add(aiMessage)
+                        // Save AI message to Firestore
+                        chatRepository.addMessage(aiMessage)
+                    }
                 }
             }
             

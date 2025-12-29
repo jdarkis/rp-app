@@ -35,6 +35,9 @@ sealed class Routes(val route: String) {
     data object Chat : Routes("worlds/{worldId}/chats/{chatId}") {
         fun createRoute(worldId: String, chatId: String) = "worlds/$worldId/chats/$chatId"
     }
+    data object ChatSettings : Routes("worlds/{worldId}/chats/{chatId}/settings") {
+        fun createRoute(worldId: String, chatId: String) = "worlds/$worldId/chats/$chatId/settings"
+    }
     
     // Settings
     data object Settings : Routes("settings")

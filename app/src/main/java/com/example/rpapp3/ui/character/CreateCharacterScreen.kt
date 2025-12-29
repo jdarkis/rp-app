@@ -28,6 +28,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.example.rpapp3.data.CharacterFieldType
+import com.example.rpapp3.ui.components.AIEnhancedTextField
 import com.example.rpapp3.viewmodel.CharacterViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -215,17 +217,19 @@ fun CreateCharacterScreen(
             
             HorizontalDivider()
             
-            OutlinedTextField(
+            AIEnhancedTextField(
                 value = name,
                 onValueChange = { name = it },
                 label = { Text("Character Name *") },
                 placeholder = { Text("e.g., Luna the Enchantress") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                enabled = !viewModel.isLoading
+                fieldType = CharacterFieldType.NAME,
+                enabled = !viewModel.isLoading,
+                isFormLoading = viewModel.isLoading
             )
             
-            OutlinedTextField(
+            AIEnhancedTextField(
                 value = description,
                 onValueChange = { description = it },
                 label = { Text("Background/Description") },
@@ -233,10 +237,12 @@ fun CreateCharacterScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(120.dp),
-                enabled = !viewModel.isLoading
+                fieldType = CharacterFieldType.DESCRIPTION,
+                enabled = !viewModel.isLoading,
+                isFormLoading = viewModel.isLoading
             )
             
-            OutlinedTextField(
+            AIEnhancedTextField(
                 value = appearance,
                 onValueChange = { appearance = it },
                 label = { Text("Appearance") },
@@ -244,10 +250,12 @@ fun CreateCharacterScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(100.dp),
-                enabled = !viewModel.isLoading
+                fieldType = CharacterFieldType.APPEARANCE,
+                enabled = !viewModel.isLoading,
+                isFormLoading = viewModel.isLoading
             )
             
-            OutlinedTextField(
+            AIEnhancedTextField(
                 value = personality,
                 onValueChange = { personality = it },
                 label = { Text("Personality") },
@@ -255,10 +263,12 @@ fun CreateCharacterScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(100.dp),
-                enabled = !viewModel.isLoading
+                fieldType = CharacterFieldType.PERSONALITY,
+                enabled = !viewModel.isLoading,
+                isFormLoading = viewModel.isLoading
             )
             
-            OutlinedTextField(
+            AIEnhancedTextField(
                 value = systemInstructions,
                 onValueChange = { systemInstructions = it },
                 label = { Text("Character-Specific AI Instructions") },
@@ -266,7 +276,9 @@ fun CreateCharacterScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(100.dp),
-                enabled = !viewModel.isLoading
+                fieldType = CharacterFieldType.SYSTEM_INSTRUCTIONS,
+                enabled = !viewModel.isLoading,
+                isFormLoading = viewModel.isLoading
             )
             
             // Photos section

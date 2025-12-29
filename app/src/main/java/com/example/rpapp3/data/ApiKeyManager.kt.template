@@ -209,6 +209,9 @@ class ApiKeyManager(private val context: Context) {
                 lowerMessage.contains("resource_exhausted") ||
                 lowerMessage.contains("free_tier") ||
                 lowerMessage.contains("exceeded") ||
+                lowerMessage.contains("overloaded") ||
+                lowerMessage.contains("model is overloaded") ||
+                lowerMessage.contains("503") ||
                 (lowerMessage.contains("limit") && lowerMessage.contains("0"))
     }
     

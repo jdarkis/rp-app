@@ -12,6 +12,7 @@ import com.example.rpapp3.ui.character.EditCharacterScreen
 import com.example.rpapp3.ui.character.AICharacterWizardScreen
 import com.example.rpapp3.ui.chat.ChatListScreen
 import com.example.rpapp3.ui.chat.ChatScreen
+import com.example.rpapp3.ui.chat.ChatSettingsScreen
 import com.example.rpapp3.ui.chat.NewChatScreen
 import com.example.rpapp3.ui.settings.ApiKeysScreen
 import com.example.rpapp3.ui.settings.AppearanceScreen
@@ -207,6 +208,24 @@ fun AppNavigation(navController: NavHostController) {
             ChatScreen(
                 chatId = chatId,
                 worldId = worldId,
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToSettings = {
+                    navController.navigate(Routes.ChatSettings.createRoute(worldId, chatId))
+                }
+            )
+        }
+        
+        composable(
+            route = Routes.ChatSettings.route,
+            arguments = listOf(
+                navArgument("worldId") { type = NavType.StringType },
+                navArgument("chatId") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val worldId = backStackEntry.arguments?.getString("worldId") ?: return@composable
+            val chatId = backStackEntry.arguments?.getString("chatId") ?: return@composable
+            ChatSettingsScreen(
+                systemPrompt = null, // Will be populated from ViewModel in future enhancement
                 onNavigateBack = { navController.popBackStack() }
             )
         }
