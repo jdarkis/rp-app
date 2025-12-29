@@ -46,15 +46,19 @@ fun AIEnhancedTextField(
     
     val aiService = remember { AITextFieldService(context) }
     
+    // Default collapsed height for multi-line fields
+    val collapsedHeight = 100.dp
+    
     // Animated height for expandable text fields (only for multi-line fields)
+    // Note: We use a fixed collapsed height instead of Dp.Unspecified because Dp.Unspecified cannot be animated
     val animatedHeight by animateDpAsState(
-        targetValue = if (!singleLine && isFocused) expandedHeight else Dp.Unspecified,
+        targetValue = if (!singleLine && isFocused) expandedHeight else collapsedHeight,
         animationSpec = tween(durationMillis = 300),
         label = "textFieldHeight"
     )
     
     // Determine height modifier - only apply animation to multi-line fields
-    val heightModifier = if (!singleLine && isFocused) {
+    val heightModifier = if (!singleLine) {
         Modifier.height(animatedHeight)
     } else {
         Modifier

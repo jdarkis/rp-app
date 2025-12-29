@@ -2,7 +2,10 @@ package com.example.rpapp3.data
 
 import android.content.Context
 import com.google.ai.client.generativeai.GenerativeModel
+import com.google.ai.client.generativeai.type.BlockThreshold
 import com.google.ai.client.generativeai.type.FunctionCallingConfig
+import com.google.ai.client.generativeai.type.HarmCategory
+import com.google.ai.client.generativeai.type.SafetySetting
 import com.google.ai.client.generativeai.type.ToolConfig
 import com.google.ai.client.generativeai.type.content
 import com.google.ai.client.generativeai.type.generationConfig
@@ -49,13 +52,16 @@ class AITextFieldService(private val context: Context) {
     suspend fun elaboratePrompt(
         prompt: String,
         fieldType: CharacterFieldType,
-        retryCount: Int = 0
+        retryCount: Int = 0,
+        lastError: String? = null
     ): ElaborationResult = withContext(Dispatchers.IO) {
         
         // Limit retries to prevent infinite loops
         val maxRetries = 3
         if (retryCount >= maxRetries) {
-            return@withContext ElaborationResult.Error("Failed after $maxRetries retries. Please try again later.")
+            return@withContext ElaborationResult.Error(
+                "Failed after $maxRetries retries. Last error: ${lastError ?: "Unknown"}"
+            )
         }
         
         val apiKey = apiKeyManager?.getCurrentApiKey()
@@ -72,9 +78,16 @@ class AITextFieldService(private val context: Context) {
                 generationConfig = generationConfig {
                     temperature = 0.9f
                     topP = 0.95f
-                    maxOutputTokens = 512
+                    maxOutputTokens = 8192
                 },
                 systemInstruction = content { text(systemPrompt) },
+                // Use permissive safety settings for creative character content
+                safetySettings = listOf(
+                    SafetySetting(HarmCategory.HARASSMENT, BlockThreshold.NONE),
+                    SafetySetting(HarmCategory.HATE_SPEECH, BlockThreshold.NONE),
+                    SafetySetting(HarmCategory.SEXUALLY_EXPLICIT, BlockThreshold.NONE),
+                    SafetySetting(HarmCategory.DANGEROUS_CONTENT, BlockThreshold.NONE)
+                ),
                 tools = emptyList(),
                 toolConfig = ToolConfig(
                     functionCallingConfig = FunctionCallingConfig(
@@ -103,13 +116,14 @@ class AITextFieldService(private val context: Context) {
             if (shouldRotateKey) {
                 val newKey = apiKeyManager?.rotateToNextKey()
                 if (newKey != null && newKey != apiKey) {
-                    // Retry with new key, increment retry count
-                    return@withContext elaboratePrompt(prompt, fieldType, retryCount + 1)
+                    // Retry with new key, pass along the error message
+                    return@withContext elaboratePrompt(prompt, fieldType, retryCount + 1, errorMessage)
                 }
                 return@withContext ElaborationResult.Error("All API keys exhausted. Error: $errorMessage")
             }
             
-            ElaborationResult.Error(errorMessage)
+            // Return the actual error message for non-retryable errors
+            ElaborationResult.Error("API Error: $errorMessage")
         }
     }
     
