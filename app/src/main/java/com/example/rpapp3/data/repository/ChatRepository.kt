@@ -49,6 +49,25 @@ class ChatRepository {
     }
     
     /**
+     * Get all chats for a specific world (one-time fetch, no index required)
+     * Useful for AI character generation context loading
+     */
+    suspend fun getChatsByWorldOnce(worldId: String): List<Chat> {
+        return try {
+            val docs = chatsCollection
+                .whereEqualTo("worldId", worldId)
+                .get()
+                .await()
+            
+            docs.documents.mapNotNull { doc ->
+                doc.data?.let { Chat.fromMap(it) }
+            }.sortedByDescending { it.updatedAt }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+    
+    /**
      * Create a new chat
      */
     suspend fun createChat(chat: Chat): Result<Chat> {
@@ -114,6 +133,27 @@ class ChatRepository {
             }
         
         awaitClose { listener.remove() }
+    }
+    
+    /**
+     * Get messages for a chat (one-time fetch, not a Flow)
+     * Useful for loading context for AI character generation
+     */
+    suspend fun getMessagesOnce(chatId: String): List<ChatMessage> {
+        return try {
+            val docs = chatsCollection
+                .document(chatId)
+                .collection("messages")
+                .orderBy("timestamp", Query.Direction.ASCENDING)
+                .get()
+                .await()
+            
+            docs.documents.mapNotNull { doc ->
+                doc.data?.let { ChatMessage.fromMap(it) }
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
     }
     
     /**

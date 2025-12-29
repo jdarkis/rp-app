@@ -164,7 +164,7 @@ fun NewChatScreen(
                     )
                 },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = selectedCharacterIds.isNotEmpty() && !viewModel.isLoading
+                enabled = !viewModel.isLoading
             ) {
                 if (viewModel.isLoading) {
                     CircularProgressIndicator(

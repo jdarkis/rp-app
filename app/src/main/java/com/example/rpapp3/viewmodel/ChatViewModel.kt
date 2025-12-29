@@ -105,10 +105,7 @@ class ChatViewModel : ViewModel() {
         onSuccess: (String) -> Unit,
         onError: (String) -> Unit
     ) {
-        if (characterIds.isEmpty()) {
-            onError("Please select at least one character")
-            return
-        }
+
         
         viewModelScope.launch {
             _isLoading.value = true
@@ -175,7 +172,7 @@ class ChatViewModel : ViewModel() {
         val characters = _characters.value
         val apiKey = currentApiKey
         
-        if (characters.isEmpty()) return
+        // Characters are optional - proceed even with no characters
         if (apiKey.isNullOrBlank()) {
             _error.value = "No API key configured. Please add one in Settings."
             return

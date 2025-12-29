@@ -9,6 +9,7 @@ import androidx.navigation.navArgument
 import com.example.rpapp3.ui.character.CharacterDetailScreen
 import com.example.rpapp3.ui.character.CreateCharacterScreen
 import com.example.rpapp3.ui.character.EditCharacterScreen
+import com.example.rpapp3.ui.character.AICharacterWizardScreen
 import com.example.rpapp3.ui.chat.ChatListScreen
 import com.example.rpapp3.ui.chat.ChatScreen
 import com.example.rpapp3.ui.chat.NewChatScreen
@@ -101,7 +102,25 @@ fun AppNavigation(navController: NavHostController) {
             CreateCharacterScreen(
                 worldId = worldId,
                 onNavigateBack = { navController.popBackStack() },
-                onCharacterCreated = { navController.popBackStack() }
+                onCharacterCreated = { navController.popBackStack() },
+                onAIGenerateClick = {
+                    navController.navigate(Routes.AICharacterWizard.createRoute(worldId))
+                }
+            )
+        }
+        
+        composable(
+            route = Routes.AICharacterWizard.route,
+            arguments = listOf(navArgument("worldId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val worldId = backStackEntry.arguments?.getString("worldId") ?: return@composable
+            AICharacterWizardScreen(
+                worldId = worldId,
+                onNavigateBack = { navController.popBackStack() },
+                onCharacterCreated = {
+                    // Pop back to world detail after character creation
+                    navController.popBackStack(Routes.WorldDetail.createRoute(worldId), inclusive = false)
+                }
             )
         }
         

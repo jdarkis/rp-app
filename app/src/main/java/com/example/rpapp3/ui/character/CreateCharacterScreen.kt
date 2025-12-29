@@ -36,7 +36,8 @@ fun CreateCharacterScreen(
     worldId: String,
     viewModel: CharacterViewModel = viewModel(),
     onNavigateBack: () -> Unit,
-    onCharacterCreated: () -> Unit
+    onCharacterCreated: () -> Unit,
+    onAIGenerateClick: () -> Unit = {}
 ) {
     val context = LocalContext.current
     
@@ -117,6 +118,23 @@ fun CreateCharacterScreen(
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    TextButton(
+                        onClick = onAIGenerateClick,
+                        enabled = !viewModel.isLoading
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = "AI Generate",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            "AI",
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
