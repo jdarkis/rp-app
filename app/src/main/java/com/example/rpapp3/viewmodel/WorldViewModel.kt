@@ -155,4 +155,56 @@ class WorldViewModel : ViewModel() {
     fun clearError() {
         error = null
     }
+    
+    fun duplicateWorld(
+        world: World,
+        onSuccess: (String) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        viewModelScope.launch {
+            isLoading = true
+            error = null
+            
+            try {
+                // First, create the new world
+                val newWorld = World(
+                    name = "${world.name} (Copy)",
+                    description = world.description,
+                    writingStyle = world.writingStyle,
+                    systemInstructions = world.systemInstructions,
+                    createdAt = System.currentTimeMillis(),
+                    updatedAt = System.currentTimeMillis()
+                )
+                
+                val createdWorldResult = worldRepository.createWorld(newWorld)
+                
+                createdWorldResult.onSuccess { createdWorld ->
+                    // Now copy all characters from the original world
+                    val originalCharacters = characterRepository.getCharactersByWorldOnce(world.id)
+                    
+                    // Create copies of each character with the new world ID
+                    originalCharacters.forEach { character ->
+                        val newCharacter = character.copy(
+                            id = "", // Will be assigned by repository
+                            worldId = createdWorld.id,
+                            createdAt = System.currentTimeMillis(),
+                            updatedAt = System.currentTimeMillis()
+                        )
+                        characterRepository.createCharacter(newCharacter)
+                    }
+                    
+                    isLoading = false
+                    onSuccess(createdWorld.id)
+                }.onFailure { e ->
+                    isLoading = false
+                    error = e.message
+                    onError(e.message ?: "Failed to duplicate world")
+                }
+            } catch (e: Exception) {
+                isLoading = false
+                error = e.message
+                onError(e.message ?: "Failed to duplicate world")
+            }
+        }
+    }
 }

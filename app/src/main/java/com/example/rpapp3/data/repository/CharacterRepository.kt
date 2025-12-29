@@ -36,6 +36,25 @@ class CharacterRepository {
     }
     
     /**
+     * Get all characters for a specific world (one-time fetch)
+     */
+    suspend fun getCharactersByWorldOnce(worldId: String): List<Character> {
+        return try {
+            val docs = charactersCollection
+                .whereEqualTo("worldId", worldId)
+                .orderBy("createdAt", Query.Direction.DESCENDING)
+                .get()
+                .await()
+            
+            docs.documents.mapNotNull { doc ->
+                doc.data?.let { Character.fromMap(it) }
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+    
+    /**
      * Get a single character by ID
      */
     suspend fun getCharacter(characterId: String): Character? {

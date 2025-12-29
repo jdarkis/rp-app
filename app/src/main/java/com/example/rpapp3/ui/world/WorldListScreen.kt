@@ -1,12 +1,15 @@
 package com.example.rpapp3.ui.world
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -21,7 +24,7 @@ import com.example.rpapp3.viewmodel.WorldViewModel
 import java.text.SimpleDateFormat
 import java.util.*
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun WorldListScreen(
     viewModel: WorldViewModel = viewModel(),
@@ -30,6 +33,11 @@ fun WorldListScreen(
     onSettingsClick: () -> Unit
 ) {
     val worlds by viewModel.worlds.collectAsState()
+    
+    // State for context menu and dialogs
+    var selectedWorld by remember { mutableStateOf<World?>(null) }
+    var showContextMenu by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
     
     Scaffold(
         topBar = {
@@ -84,7 +92,25 @@ fun WorldListScreen(
                     items(worlds, key = { it.id }) { world ->
                         WorldCard(
                             world = world,
-                            onClick = { onWorldClick(world.id) }
+                            onClick = { onWorldClick(world.id) },
+                            onLongClick = {
+                                selectedWorld = world
+                                showContextMenu = true
+                            },
+                            showContextMenu = showContextMenu && selectedWorld?.id == world.id,
+                            onDismissMenu = { showContextMenu = false },
+                            onDuplicate = {
+                                showContextMenu = false
+                                viewModel.duplicateWorld(
+                                    world = world,
+                                    onSuccess = { /* World duplicated successfully */ },
+                                    onError = { /* Handle error */ }
+                                )
+                            },
+                            onDelete = {
+                                showContextMenu = false
+                                showDeleteDialog = true
+                            }
                         )
                     }
                 }
@@ -100,6 +126,38 @@ fun WorldListScreen(
                 }
             }
         }
+    }
+    
+    // Delete confirmation dialog
+    if (showDeleteDialog && selectedWorld != null) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Delete World") },
+            text = { Text("Are you sure you want to delete \"${selectedWorld?.name}\"? This will also delete all characters and chats in this world.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        selectedWorld?.let { world ->
+                            viewModel.deleteWorld(
+                                worldId = world.id,
+                                onSuccess = { showDeleteDialog = false },
+                                onError = { showDeleteDialog = false }
+                            )
+                        }
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 
@@ -140,19 +198,29 @@ private fun EmptyWorldsState(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun WorldCard(
     world: World,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: () -> Unit = {},
+    showContextMenu: Boolean = false,
+    onDismissMenu: () -> Unit = {},
+    onDuplicate: () -> Unit = {},
+    onDelete: () -> Unit = {}
 ) {
     val dateFormat = remember { SimpleDateFormat("MMM d, yyyy", Locale.getDefault()) }
     
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
+    Box {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = onLongClick
+                ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
         Column(
             modifier = Modifier.padding(16.dp)
         ) {
@@ -202,6 +270,35 @@ fun WorldCard(
                 text = "Updated ${dateFormat.format(Date(world.updatedAt))}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+            )
+        }
+    }
+        
+        // Context menu dropdown
+        DropdownMenu(
+            expanded = showContextMenu,
+            onDismissRequest = onDismissMenu
+        ) {
+            DropdownMenuItem(
+                text = { Text("Duplicate") },
+                onClick = onDuplicate,
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.ContentCopy,
+                        contentDescription = "Duplicate"
+                    )
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                onClick = onDelete,
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Delete",
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                }
             )
         }
     }
