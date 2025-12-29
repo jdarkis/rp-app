@@ -229,10 +229,11 @@ fun CharacterCard(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Character avatar
-            if (character.photoUrls.isNotEmpty()) {
+            // Character avatar - prioritize profile picture, then first photo
+            val avatarUrl = character.profilePictureUrl ?: character.photoUrls.firstOrNull()
+            if (avatarUrl != null) {
                 AsyncImage(
-                    model = character.photoUrls.first(),
+                    model = avatarUrl,
                     contentDescription = character.name,
                     modifier = Modifier
                         .size(56.dp)

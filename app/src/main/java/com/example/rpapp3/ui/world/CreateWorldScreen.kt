@@ -1,5 +1,7 @@
 package com.example.rpapp3.ui.world
 
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -8,6 +10,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.rpapp3.viewmodel.WorldViewModel
@@ -24,6 +27,28 @@ fun CreateWorldScreen(
     var writingStyle by remember { mutableStateOf("") }
     var systemInstructions by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    
+    // Focus states for expandable text fields
+    var isDescriptionFocused by remember { mutableStateOf(false) }
+    var isWritingStyleFocused by remember { mutableStateOf(false) }
+    var isSystemInstructionsFocused by remember { mutableStateOf(false) }
+    
+    // Animated heights for expandable text fields
+    val descriptionHeight by animateDpAsState(
+        targetValue = if (isDescriptionFocused) 300.dp else 120.dp,
+        animationSpec = tween(durationMillis = 300),
+        label = "descriptionHeight"
+    )
+    val writingStyleHeight by animateDpAsState(
+        targetValue = if (isWritingStyleFocused) 300.dp else 120.dp,
+        animationSpec = tween(durationMillis = 300),
+        label = "writingStyleHeight"
+    )
+    val systemInstructionsHeight by animateDpAsState(
+        targetValue = if (isSystemInstructionsFocused) 300.dp else 120.dp,
+        animationSpec = tween(durationMillis = 300),
+        label = "systemInstructionsHeight"
+    )
     
     val snackbarHostState = remember { SnackbarHostState() }
     
@@ -76,7 +101,8 @@ fun CreateWorldScreen(
                 placeholder = { Text("Describe the world, its lore, setting, and atmosphere...") },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(150.dp),
+                    .height(descriptionHeight)
+                    .onFocusChanged { isDescriptionFocused = it.isFocused },
                 enabled = !viewModel.isLoading
             )
             
@@ -87,7 +113,8 @@ fun CreateWorldScreen(
                 placeholder = { Text("e.g., Formal, Fantasy prose, Casual, Dramatic...") },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(150.dp),
+                    .height(writingStyleHeight)
+                    .onFocusChanged { isWritingStyleFocused = it.isFocused },
                 enabled = !viewModel.isLoading
             )
             
@@ -98,7 +125,8 @@ fun CreateWorldScreen(
                 placeholder = { Text("Special instructions for the AI when roleplaying in this world...") },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(120.dp),
+                    .height(systemInstructionsHeight)
+                    .onFocusChanged { isSystemInstructionsFocused = it.isFocused },
                 enabled = !viewModel.isLoading
             )
             

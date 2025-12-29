@@ -19,6 +19,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -27,7 +28,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
@@ -56,6 +59,11 @@ fun CharacterDetailScreen(
     var expandedGalleryState by remember { mutableStateOf<GalleryState?>(null) }
     var expandedVideoUrl by remember { mutableStateOf<String?>(null) }
     
+    // Clipboard and snackbar for copy functionality
+    val clipboardManager = LocalClipboardManager.current
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    
     LaunchedEffect(characterId) {
         viewModel.loadCharacter(characterId)
     }
@@ -79,7 +87,8 @@ fun CharacterDetailScreen(
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
                 )
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
         if (viewModel.isLoading) {
             Box(
@@ -156,7 +165,11 @@ fun CharacterDetailScreen(
                         InfoSection(
                             title = "Background",
                             content = char.description,
-                            icon = Icons.Default.Book
+                            icon = Icons.Default.Book,
+                            onCopy = {
+                                clipboardManager.setText(AnnotatedString(char.description))
+                                scope.launch { snackbarHostState.showSnackbar("Background copied") }
+                            }
                         )
                     }
                     
@@ -165,7 +178,11 @@ fun CharacterDetailScreen(
                         InfoSection(
                             title = "Appearance",
                             content = char.appearance,
-                            icon = Icons.Default.Face
+                            icon = Icons.Default.Face,
+                            onCopy = {
+                                clipboardManager.setText(AnnotatedString(char.appearance))
+                                scope.launch { snackbarHostState.showSnackbar("Appearance copied") }
+                            }
                         )
                     }
                     
@@ -174,7 +191,11 @@ fun CharacterDetailScreen(
                         InfoSection(
                             title = "Personality",
                             content = char.personality,
-                            icon = Icons.Default.Psychology
+                            icon = Icons.Default.Psychology,
+                            onCopy = {
+                                clipboardManager.setText(AnnotatedString(char.personality))
+                                scope.launch { snackbarHostState.showSnackbar("Personality copied") }
+                            }
                         )
                     }
                     
@@ -183,7 +204,11 @@ fun CharacterDetailScreen(
                         InfoSection(
                             title = "AI Instructions",
                             content = char.systemInstructions,
-                            icon = Icons.Default.SmartToy
+                            icon = Icons.Default.SmartToy,
+                            onCopy = {
+                                clipboardManager.setText(AnnotatedString(char.systemInstructions))
+                                scope.launch { snackbarHostState.showSnackbar("AI Instructions copied") }
+                            }
                         )
                     }
                     
@@ -464,7 +489,8 @@ private fun ExpandedVideoDialog(
 private fun InfoSection(
     title: String,
     content: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onCopy: () -> Unit = {}
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -477,7 +503,7 @@ private fun InfoSection(
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Icon(
                     imageVector = icon,
@@ -485,11 +511,24 @@ private fun InfoSection(
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(20.dp)
                 )
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.primary
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.weight(1f)
                 )
+                IconButton(
+                    onClick = onCopy,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ContentCopy,
+                        contentDescription = "Copy $title",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
             Spacer(modifier = Modifier.height(8.dp))
             Text(

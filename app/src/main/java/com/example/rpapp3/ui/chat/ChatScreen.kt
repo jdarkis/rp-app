@@ -31,6 +31,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.example.rpapp3.data.ChatSettingsManager
+import com.example.rpapp3.data.MessageFilterMode
 import com.example.rpapp3.data.model.ChatMessage
 import com.example.rpapp3.data.model.Character
 import com.example.rpapp3.viewmodel.ChatViewModel
@@ -53,6 +55,13 @@ fun ChatScreen(
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
     
+    // Chat settings
+    val chatSettingsManager = remember { ChatSettingsManager.getInstance(context) }
+    val filterMode by chatSettingsManager.filterMode.collectAsState(initial = MessageFilterMode.OFF)
+    val customDelimiter by chatSettingsManager.customDelimiter.collectAsState(initial = ChatSettingsManager.DEFAULT_DELIMITER)
+    var showSettingsDialog by remember { mutableStateOf(false) }
+    var delimiterInput by remember(customDelimiter) { mutableStateOf(customDelimiter) }
+    
     // Initialize ViewModel with context for API key management
     LaunchedEffect(Unit) {
         viewModel.initializeWithContext(context)
@@ -67,6 +76,149 @@ fun ChatScreen(
         if (messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.size - 1)
         }
+    }
+    
+    // Settings Dialog
+    if (showSettingsDialog) {
+        AlertDialog(
+            onDismissRequest = { showSettingsDialog = false },
+            title = { Text("AI Message Display") },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Choose how to display AI-generated messages",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    // Option: Show full message
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = filterMode == MessageFilterMode.OFF,
+                            onClick = {
+                                coroutineScope.launch {
+                                    chatSettingsManager.setFilterMode(MessageFilterMode.OFF)
+                                }
+                            }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "Show full message",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                text = "Display complete AI responses",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    
+                    // Option: Last paragraph only
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = filterMode == MessageFilterMode.LAST_PARAGRAPH,
+                            onClick = {
+                                coroutineScope.launch {
+                                    chatSettingsManager.setFilterMode(MessageFilterMode.LAST_PARAGRAPH)
+                                }
+                            }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "Last paragraph only",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                text = "Show only the final paragraph",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    
+                    // Option: After delimiter
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = filterMode == MessageFilterMode.AFTER_DELIMITER,
+                            onClick = {
+                                coroutineScope.launch {
+                                    chatSettingsManager.setFilterMode(MessageFilterMode.AFTER_DELIMITER)
+                                }
+                            }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "After custom delimiter",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                text = "Show text appearing after a specific symbol",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    
+                    // Delimiter input (only shown when AFTER_DELIMITER is selected)
+                    if (filterMode == MessageFilterMode.AFTER_DELIMITER) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = delimiterInput,
+                            onValueChange = { delimiterInput = it },
+                            label = { Text("Delimiter") },
+                            placeholder = { Text("e.g. *** or ---") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            supportingText = {
+                                Text("Text after this symbol will be shown")
+                            },
+                            trailingIcon = {
+                                if (delimiterInput != customDelimiter && delimiterInput.isNotEmpty()) {
+                                    TextButton(
+                                        onClick = {
+                                            coroutineScope.launch {
+                                                chatSettingsManager.setCustomDelimiter(delimiterInput)
+                                            }
+                                        }
+                                    ) {
+                                        Text("Save")
+                                    }
+                                }
+                            }
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showSettingsDialog = false }) {
+                    Text("Done")
+                }
+            }
+        )
     }
     
     Scaffold(
@@ -96,6 +248,15 @@ fun ChatScreen(
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack, 
                             contentDescription = "Back",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { showSettingsDialog = true }) {
+                        Icon(
+                            Icons.Default.Settings,
+                            contentDescription = "Chat Settings",
                             tint = MaterialTheme.colorScheme.primary
                         )
                     }
@@ -135,6 +296,8 @@ fun ChatScreen(
                     MessageBubble(
                         message = message,
                         character = characters.find { it.id == message.characterId },
+                        filterMode = filterMode,
+                        customDelimiter = customDelimiter,
                         onCopy = { text ->
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             clipboard.setPrimaryClip(ClipData.newPlainText("Message", text))
@@ -176,6 +339,8 @@ fun ChatScreen(
 fun MessageBubble(
     message: ChatMessage,
     character: Character?,
+    filterMode: MessageFilterMode = MessageFilterMode.OFF,
+    customDelimiter: String = "***",
     onCopy: (String) -> Unit,
     onDelete: () -> Unit,
     onRegenerate: (() -> Unit)?
@@ -304,8 +469,30 @@ fun MessageBubble(
                         onLongClick = { showMenu = true }
                     )
                 ) {
+                    // Get text to display based on filter mode
+                    val displayText = if (!message.isUser) {
+                        when (filterMode) {
+                            MessageFilterMode.OFF -> message.text
+                            MessageFilterMode.LAST_PARAGRAPH -> {
+                                message.text.split("\n\n").lastOrNull { it.isNotBlank() }
+                                    ?: message.text.split("\n").lastOrNull { it.isNotBlank() }
+                                    ?: message.text
+                            }
+                            MessageFilterMode.AFTER_DELIMITER -> {
+                                if (customDelimiter.isNotEmpty() && message.text.contains(customDelimiter)) {
+                                    message.text.substringAfterLast(customDelimiter).trim()
+                                        .ifEmpty { message.text }
+                                } else {
+                                    message.text
+                                }
+                            }
+                        }
+                    } else {
+                        message.text
+                    }
+                    
                     Text(
-                        text = message.text,
+                        text = displayText,
                         color = textColor,
                         modifier = Modifier.padding(12.dp),
                         style = MaterialTheme.typography.bodyMedium

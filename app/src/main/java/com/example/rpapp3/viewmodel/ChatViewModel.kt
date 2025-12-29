@@ -187,7 +187,7 @@ class ChatViewModel : ViewModel() {
             generationConfig = generationConfig {
                 temperature = 0.9f
                 topP = 0.95f
-                maxOutputTokens = 8192
+                maxOutputTokens = 16384
             },
             systemInstruction = content { text(systemInstructions) },
             // IMPORTANT: Disable all tools including Google Search grounding
@@ -257,18 +257,7 @@ class ChatViewModel : ViewModel() {
             appendLine("3. Use the specified writing style for your responses")
             appendLine("4. Be creative and engaging while staying consistent with the world setting")
             appendLine("5. If multiple characters are present, you may respond as any or all of them as appropriate")
-            appendLine()
-            appendLine("=== RESPONSE FORMAT ===")
-            appendLine("IMPORTANT: You MUST prefix each part of your response to indicate who is speaking:")
-            appendLine("- For narration, descriptions, and actions: Start with [NARRATOR]: ")
-            appendLine("- For character dialogue: Start with [CHARACTER_NAME]: (using the actual character's name)")
-            appendLine()
-            appendLine("Examples:")
-            appendLine("[NARRATOR]: The sun set over the mountains, casting long shadows across the valley.")
-            appendLine("[${characters.firstOrNull()?.name ?: "Character"}]: \"Hello there! I've been waiting for you.\"")
-            appendLine("[NARRATOR]: She smiled warmly, her eyes twinkling in the fading light.")
-            appendLine()
-            appendLine("Always use these prefixes to clearly indicate narrator vs character speech.")
+            appendLine("6. Write in a narrative style, describing actions, dialogue, and scenes naturally")
         }
     }
     
@@ -413,89 +402,24 @@ class ChatViewModel : ViewModel() {
     }
     
     /**
-     * Parse the AI response into separate messages for narrator and characters.
-     * Expected format: [SPEAKER]: text
-     * Where SPEAKER is either "NARRATOR" or a character name.
+     * Create a single narrator message from the AI response.
+     * All AI responses come from the Narrator.
      */
     private fun parseResponseIntoMessages(responseText: String, chatId: String): List<ChatMessage> {
-        val messages = mutableListOf<ChatMessage>()
-        val characters = _characters.value
-        
-        // Regex to match [SPEAKER]: pattern
-        val speakerPattern = Regex("""\[([^\]]+)\]:\s*""")
-        
-        // Split the response by speaker prefixes
-        val parts = speakerPattern.split(responseText)
-        val speakers = speakerPattern.findAll(responseText).map { it.groupValues[1] }.toList()
-        
-        // If no speakers found, treat entire response as narrator
-        if (speakers.isEmpty()) {
-            val fullText = responseText.trim()
-            if (fullText.isNotEmpty()) {
-                messages.add(
-                    ChatMessage(
-                        chatId = chatId,
-                        text = fullText,
-                        isUser = false,
-                        characterId = null,
-                        characterName = "Narrator"
-                    )
-                )
-            }
-            return messages
+        val fullText = responseText.trim()
+        if (fullText.isEmpty()) {
+            return emptyList()
         }
         
-        // First part before any speaker tag (usually empty)
-        if (parts.isNotEmpty() && parts[0].isNotBlank()) {
-            messages.add(
-                ChatMessage(
-                    chatId = chatId,
-                    text = parts[0].trim(),
-                    isUser = false,
-                    characterId = null,
-                    characterName = "Narrator"
-                )
+        return listOf(
+            ChatMessage(
+                chatId = chatId,
+                text = fullText,
+                isUser = false,
+                characterId = null,
+                characterName = "Narrator"
             )
-        }
-        
-        // Process each speaker and their text
-        speakers.forEachIndexed { index, speaker ->
-            val textIndex = index + 1 // parts[0] is before first speaker
-            if (textIndex < parts.size) {
-                val text = parts[textIndex].trim()
-                if (text.isNotEmpty()) {
-                    val isNarrator = speaker.equals("NARRATOR", ignoreCase = true)
-                    val matchingCharacter = if (!isNarrator) {
-                        characters.find { it.name.equals(speaker, ignoreCase = true) }
-                    } else null
-                    
-                    messages.add(
-                        ChatMessage(
-                            chatId = chatId,
-                            text = text,
-                            isUser = false,
-                            characterId = matchingCharacter?.id,
-                            characterName = if (isNarrator) "Narrator" else (matchingCharacter?.name ?: speaker)
-                        )
-                    )
-                }
-            }
-        }
-        
-        // If parsing resulted in no messages, add the full response as narrator
-        if (messages.isEmpty()) {
-            messages.add(
-                ChatMessage(
-                    chatId = chatId,
-                    text = responseText.trim(),
-                    isUser = false,
-                    characterId = null,
-                    characterName = "Narrator"
-                )
-            )
-        }
-        
-        return messages
+        )
     }
     
     /**
