@@ -275,9 +275,7 @@ fun EditCharacterScreen(
                 value = description,
                 onValueChange = { description = it },
                 label = { Text("Background/Description") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(120.dp),
+                modifier = Modifier.fillMaxWidth(),
                 fieldType = CharacterFieldType.DESCRIPTION,
                 enabled = !viewModel.isLoading,
                 isFormLoading = viewModel.isLoading
@@ -287,9 +285,7 @@ fun EditCharacterScreen(
                 value = appearance,
                 onValueChange = { appearance = it },
                 label = { Text("Appearance") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(100.dp),
+                modifier = Modifier.fillMaxWidth(),
                 fieldType = CharacterFieldType.APPEARANCE,
                 enabled = !viewModel.isLoading,
                 isFormLoading = viewModel.isLoading
@@ -299,9 +295,7 @@ fun EditCharacterScreen(
                 value = personality,
                 onValueChange = { personality = it },
                 label = { Text("Personality") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(100.dp),
+                modifier = Modifier.fillMaxWidth(),
                 fieldType = CharacterFieldType.PERSONALITY,
                 enabled = !viewModel.isLoading,
                 isFormLoading = viewModel.isLoading
@@ -311,9 +305,7 @@ fun EditCharacterScreen(
                 value = systemInstructions,
                 onValueChange = { systemInstructions = it },
                 label = { Text("AI Instructions") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(100.dp),
+                modifier = Modifier.fillMaxWidth(),
                 fieldType = CharacterFieldType.SYSTEM_INSTRUCTIONS,
                 enabled = !viewModel.isLoading,
                 isFormLoading = viewModel.isLoading

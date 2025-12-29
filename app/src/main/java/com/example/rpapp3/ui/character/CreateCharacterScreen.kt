@@ -234,9 +234,7 @@ fun CreateCharacterScreen(
                 onValueChange = { description = it },
                 label = { Text("Background/Description") },
                 placeholder = { Text("Character's backstory, history, and role in the world...") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(120.dp),
+                modifier = Modifier.fillMaxWidth(),
                 fieldType = CharacterFieldType.DESCRIPTION,
                 enabled = !viewModel.isLoading,
                 isFormLoading = viewModel.isLoading
@@ -247,9 +245,7 @@ fun CreateCharacterScreen(
                 onValueChange = { appearance = it },
                 label = { Text("Appearance") },
                 placeholder = { Text("Physical description, clothing, distinctive features...") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(100.dp),
+                modifier = Modifier.fillMaxWidth(),
                 fieldType = CharacterFieldType.APPEARANCE,
                 enabled = !viewModel.isLoading,
                 isFormLoading = viewModel.isLoading
@@ -260,9 +256,7 @@ fun CreateCharacterScreen(
                 onValueChange = { personality = it },
                 label = { Text("Personality") },
                 placeholder = { Text("Traits, mannerisms, speech patterns, quirks...") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(100.dp),
+                modifier = Modifier.fillMaxWidth(),
                 fieldType = CharacterFieldType.PERSONALITY,
                 enabled = !viewModel.isLoading,
                 isFormLoading = viewModel.isLoading
@@ -273,9 +267,7 @@ fun CreateCharacterScreen(
                 onValueChange = { systemInstructions = it },
                 label = { Text("Character-Specific AI Instructions") },
                 placeholder = { Text("Special instructions for how the AI should portray this character...") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(100.dp),
+                modifier = Modifier.fillMaxWidth(),
                 fieldType = CharacterFieldType.SYSTEM_INSTRUCTIONS,
                 enabled = !viewModel.isLoading,
                 isFormLoading = viewModel.isLoading
