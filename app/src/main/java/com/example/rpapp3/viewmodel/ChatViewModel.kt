@@ -6,6 +6,8 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.isActive
 import com.example.rpapp3.data.ApiKeyManager
 import com.example.rpapp3.data.ChatSettings
 import com.example.rpapp3.data.ChatSettingsManager
@@ -849,6 +851,182 @@ class ChatViewModel : ViewModel() {
      * Stop any currently playing TTS
      */
     fun stopSpeaking() {
+        // Cancel any queued segments first
+        ttsSegmentJob?.cancel()
+        ttsSegmentJob = null
         _ttsManager?.stop()
+    }
+    
+    /**
+     * Pause current TTS playback
+     */
+    fun pauseSpeaking() {
+        _ttsManager?.pause()
+    }
+    
+    /**
+     * Resume TTS playback
+     */
+    fun resumeSpeaking() {
+        _ttsManager?.resume()
+    }
+    
+    // Job for sequential segment playback (can be cancelled)
+    private var ttsSegmentJob: kotlinx.coroutines.Job? = null
+    
+    /**
+     * Data class for segment info to be spoken
+     */
+    data class SpeakableSegment(
+        val text: String,
+        val characterId: String? = null
+    )
+    
+    /**
+     * Speak multiple segments sequentially, using appropriate voice for each
+     * Pre-fetches next segment's audio while current plays to eliminate gaps
+     * Can be cancelled via stopSpeaking()
+     */
+    fun speakSegmentsSequentially(segments: List<SpeakableSegment>) {
+        if (segments.isEmpty()) return
+        
+        // Cancel any previous sequential playback
+        ttsSegmentJob?.cancel()
+        
+        ttsSegmentJob = viewModelScope.launch {
+            var nextAudioDeferred: kotlinx.coroutines.Deferred<ByteArray?>? = null
+            var nextSegmentId: String? = null
+            
+            for (i in segments.indices) {
+                if (!isActive) break
+                
+                val segment = segments[i]
+                
+                // Get audio for current segment (either pre-fetched or generate now)
+                val audioData: ByteArray?
+                val segmentId: String
+                
+                if (nextAudioDeferred != null && nextSegmentId != null) {
+                    // Use pre-fetched audio
+                    audioData = nextAudioDeferred.await()
+                    segmentId = nextSegmentId
+                    nextAudioDeferred = null
+                    nextSegmentId = null
+                } else {
+                    // Generate audio for first segment
+                    val result = generateAudioForSegment(segment)
+                    audioData = result.first
+                    segmentId = result.second
+                }
+                
+                if (audioData == null) continue
+                
+                // Start pre-fetching NEXT segment's audio while this one plays
+                if (i + 1 < segments.size && isActive) {
+                    val nextSegment = segments[i + 1]
+                    nextSegmentId = "${System.currentTimeMillis()}_${nextSegment.text.hashCode()}"
+                    nextAudioDeferred = async {
+                        generateAudioForSegment(nextSegment).first
+                    }
+                }
+                
+                // Play current segment
+                _ttsManager?.playFromBytes(audioData, segmentId)
+                
+                // Wait for playback to complete
+                try {
+                    _ttsManager?.playbackState?.first { state ->
+                        state == TTSPlaybackState.IDLE || state == TTSPlaybackState.ERROR
+                    }
+                } catch (e: Exception) {
+                    Log.w("ChatViewModel", "Error waiting for playback: ${e.message}")
+                }
+            }
+        }
+    }
+    
+    /**
+     * Generate audio for a segment and return the audio data and segment ID
+     */
+    private suspend fun generateAudioForSegment(segment: SpeakableSegment): Pair<ByteArray?, String> {
+        try {
+            val currentSettings = chatSettingsManager?.getCurrentSettings() 
+                ?: return Pair(null, "")
+            if (!currentSettings.ttsEnabled) return Pair(null, "")
+            
+            // Determine voice ID - character-specific or narrator
+            var voiceId: String? = null
+            var language: String? = null
+            
+            if (segment.characterId != null) {
+                val character = _characters.value.find { it.id == segment.characterId }
+                if (character != null && !character.voiceId.isNullOrBlank()) {
+                    voiceId = character.voiceId
+                    language = character.language
+                }
+            }
+            
+            // Fallback to narrator voice
+            if (voiceId.isNullOrBlank()) {
+                voiceId = currentSettings.narratorVoiceId
+            }
+            
+            if (voiceId.isNullOrBlank()) {
+                return Pair(null, "")
+            }
+            
+            val modelId = currentSettings.ttsModelId.takeIf { it.isNotBlank() }
+                ?: ElevenLabsTTSModels.DEFAULT_MODEL_ID
+            
+            // Clean the text
+            val cleanText = segment.text
+                .replace(Regex("""\\[[^\\]]+\\]:\\s*"""), "")
+                .replace(Regex("""\\[ACTIONS\\].*""", RegexOption.DOT_MATCHES_ALL), "")
+                .trim()
+            
+            if (cleanText.isBlank()) return Pair(null, "")
+            
+            val segmentId = "${System.currentTimeMillis()}_${segment.text.hashCode()}"
+            
+            val result = elevenLabsService?.textToSpeech(
+                text = cleanText,
+                voiceId = voiceId,
+                modelId = modelId,
+                language = language
+            ) ?: return Pair(null, segmentId)
+            
+            return result.fold(
+                onSuccess = { audioData -> Pair(audioData, segmentId) },
+                onFailure = { e ->
+                    Log.e("ChatViewModel", "TTS generation failed: ${e.message}", e)
+                    Pair(null, segmentId)
+                }
+            )
+            
+        } catch (e: Exception) {
+            Log.e("ChatViewModel", "Exception generating audio: ${e.message}", e)
+            return Pair(null, "")
+        }
+    }
+    
+    /**
+     * Speak text and wait for playback to complete (kept for single segment use)
+     */
+    private suspend fun speakTextAndWait(text: String, characterId: String? = null) {
+        val segment = SpeakableSegment(text, characterId)
+        val (audioData, segmentId) = generateAudioForSegment(segment)
+        
+        if (audioData != null) {
+            _ttsManager?.playFromBytes(audioData, segmentId)
+            
+            // Wait for playback to complete
+            try {
+                _ttsManager?.playbackState?.first { state ->
+                    state == TTSPlaybackState.IDLE || state == TTSPlaybackState.ERROR
+                }
+            } catch (e: Exception) {
+                Log.w("ChatViewModel", "Error waiting for playback: ${e.message}")
+            }
+        }
     }
 }

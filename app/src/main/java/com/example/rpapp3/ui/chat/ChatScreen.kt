@@ -13,6 +13,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -207,9 +209,16 @@ fun ChatScreen(
     
     // TTS settings
     val ttsEnabled by chatSettingsManager.ttsEnabled.collectAsState(initial = false)
+    val autoTtsEnabled by chatSettingsManager.autoTtsEnabled.collectAsState(initial = false)
     val ttsManager = viewModel.ttsManager
     val playbackState = ttsManager?.playbackState?.collectAsState()
     val currentPlayingId = ttsManager?.currentPlayingId?.collectAsState()
+    
+    // Track last spoken message ID for auto-TTS (saveable to persist across config changes)
+    var lastSpokenMessageId by rememberSaveable { mutableStateOf<String?>(null) }
+    
+    // Track if we were previously loading (to detect when AI response completes)
+    var wasLoading by remember { mutableStateOf(false) }
     
     // State for pending input text (from choice selection)
     var pendingInputText by remember { mutableStateOf<String?>(null) }
@@ -227,6 +236,62 @@ fun ChatScreen(
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.size - 1)
+        }
+    }
+    
+    // Auto-TTS for NEW AI messages only - triggered when loading finishes
+    LaunchedEffect(isLoading, autoTtsEnabled, ttsEnabled) {
+        // Detect transition from loading to not loading (AI just finished responding)
+        val justFinishedLoading = wasLoading && !isLoading
+        wasLoading = isLoading
+        
+        if (!justFinishedLoading) return@LaunchedEffect
+        if (!ttsEnabled || !autoTtsEnabled || messages.isEmpty()) return@LaunchedEffect
+        
+        // Find the last AI message
+        val lastAiMessage = messages.lastOrNull { !it.isUser }
+        
+        // Only speak if it's a new message we haven't spoken yet
+        if (lastAiMessage != null && lastAiMessage.id != lastSpokenMessageId) {
+            lastSpokenMessageId = lastAiMessage.id
+            
+            // Get the display text based on current filter settings (visible text only)
+            val displayText = when (filterMode) {
+                MessageFilterMode.AFTER_DELIMITER -> {
+                    val parts = lastAiMessage.text.split(customDelimiter)
+                    if (parts.size > 1) parts.last().trim() else lastAiMessage.text
+                }
+                MessageFilterMode.LAST_N_PARAGRAPHS -> {
+                    val paragraphs = lastAiMessage.text.split("\n\n")
+                    if (paragraphs.size > paragraphCount) {
+                        paragraphs.takeLast(paragraphCount).joinToString("\n\n").trim()
+                    } else {
+                        lastAiMessage.text
+                    }
+                }
+                else -> lastAiMessage.text
+            }
+            
+            // Parse segments if dialogue separation is enabled
+            if (separateCharacterDialogue) {
+                val segments = parseDialogueSegments(displayText)
+                // Build list of speakable segments with character IDs
+                val speakableSegments = segments.map { segment ->
+                    val character = if (segment.isCharacterDialogue && segment.characterName != null) {
+                        characters.find { it.name.equals(segment.characterName, ignoreCase = true) }
+                    } else null
+                    
+                    ChatViewModel.SpeakableSegment(
+                        text = segment.text,
+                        characterId = character?.id
+                    )
+                }
+                // Speak all segments sequentially with appropriate voices
+                viewModel.speakSegmentsSequentially(speakableSegments)
+            } else {
+                // Speak the whole visible message
+                viewModel.speakText(displayText, lastAiMessage.characterId)
+            }
         }
     }
     
@@ -301,7 +366,7 @@ fun ChatScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(vertical = 8.dp)
             ) {
-                items(messages, key = { it.id }) { message ->
+                itemsIndexed(messages, key = { _, message -> message.id }) { index, message ->
                     MessageBubble(
                         message = message,
                         character = characters.find { it.id == message.characterId },
@@ -311,6 +376,8 @@ fun ChatScreen(
                         paragraphCount = paragraphCount,
                         separateDialogue = separateCharacterDialogue,
                         provideChoicesEnabled = provideChoicesEnabled,
+                        isLast = index == messages.size - 1,
+                        isChatLoading = isLoading,
                         onCopy = { text ->
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             clipboard.setPrimaryClip(ClipData.newPlainText("Message", text))
@@ -348,6 +415,72 @@ fun ChatScreen(
                 if (isLoading) {
                     item {
                         LoadingIndicator()
+                    }
+                }
+            }
+            
+            // Floating TTS Stop Button - shows when TTS is playing or loading
+            val isPlayingOrLoading = playbackState?.value == TTSPlaybackState.PLAYING || 
+                                     playbackState?.value == TTSPlaybackState.LOADING ||
+                                     playbackState?.value == TTSPlaybackState.PAUSED
+            
+            if (isPlayingOrLoading && ttsEnabled) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+                ) {
+                    // Pause/Resume button (only when playing or paused)
+                    if (playbackState?.value == TTSPlaybackState.PLAYING || 
+                        playbackState?.value == TTSPlaybackState.PAUSED) {
+                        FilledTonalButton(
+                            onClick = { 
+                                if (playbackState?.value == TTSPlaybackState.PAUSED) {
+                                    viewModel.resumeSpeaking()
+                                } else {
+                                    viewModel.pauseSpeaking()
+                                }
+                            }
+                        ) {
+                            Icon(
+                                if (playbackState?.value == TTSPlaybackState.PAUSED) 
+                                    Icons.Default.PlayArrow 
+                                else 
+                                    Icons.Default.Pause,
+                                contentDescription = if (playbackState?.value == TTSPlaybackState.PAUSED) "Resume" else "Pause",
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(if (playbackState?.value == TTSPlaybackState.PAUSED) "Resume" else "Pause")
+                        }
+                    }
+                    
+                    // Stop button
+                    FilledTonalButton(
+                        onClick = { viewModel.stopSpeaking() },
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    ) {
+                        if (playbackState?.value == TTSPlaybackState.LOADING) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Generating...")
+                        } else {
+                            Icon(
+                                Icons.Default.Stop,
+                                contentDescription = "Stop",
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Stop")
+                        }
                     }
                 }
             }
@@ -391,7 +524,9 @@ fun MessageBubble(
     isLoadingTTS: Boolean = false,
     currentPlayingSegmentId: String? = null,
     onSpeak: ((text: String, characterId: String?) -> Unit)? = null,
-    onStopSpeaking: (() -> Unit)? = null
+    onStopSpeaking: (() -> Unit)? = null,
+    isLast: Boolean = false,
+    isChatLoading: Boolean = false
 ) {
     val isUser = message.isUser
     var showMenuForSegment by remember { mutableStateOf<Int?>(null) }
@@ -693,7 +828,8 @@ fun MessageBubble(
         }
         
         // Render choice buttons if available (for AI messages only)
-        if (!isUser && choices.isNotEmpty() && onChoiceSelected != null) {
+        // Only show choices if it's the last message and chat is not loading
+        if (!isUser && choices.isNotEmpty() && onChoiceSelected != null && isLast && !isChatLoading) {
             ChoiceButtons(
                 choices = choices,
                 onChoiceSelected = onChoiceSelected
@@ -768,7 +904,7 @@ fun ChoiceButtons(
             ) {
                 dialogueChoices.forEach { choice ->
                     SuggestionChip(
-                        onClick = { onChoiceSelected(choice.text) },
+                        onClick = { onChoiceSelected("\"${choice.text}\"") },
                         label = { 
                             Text(
                                 text = "\"${choice.text}\"",

@@ -77,6 +77,7 @@ fun ChatSettingsScreen(
     
     // TTS Settings
     val ttsEnabled by chatSettingsManager.ttsEnabled.collectAsState(initial = false)
+    val autoTtsEnabled by chatSettingsManager.autoTtsEnabled.collectAsState(initial = false)
     val narratorVoiceId by chatSettingsManager.narratorVoiceId.collectAsState(initial = "")
     val ttsModelId by chatSettingsManager.ttsModelId.collectAsState(initial = ChatSettingsManager.DEFAULT_TTS_MODEL_ID)
     
@@ -417,6 +418,16 @@ fun ChatSettingsScreen(
                     if (ttsEnabled) {
                         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                         
+                        // Auto-play TTS Toggle
+                        SettingsToggle(
+                            title = "Auto-play TTS",
+                            description = "Automatically speak AI responses as they appear",
+                            checked = autoTtsEnabled,
+                            onCheckedChange = { scope.launch { chatSettingsManager.setAutoTtsEnabled(it) } }
+                        )
+                        
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                        
                         // TTS Model Selector
                         Text(
                             text = "TTS Model",
@@ -715,6 +726,7 @@ fun ChatSettingsScreen(
                         }
                     }
                 }
+                
                 
                 // Restore to Defaults Button
                 var showRestoreConfirmDialog by remember { mutableStateOf(false) }
