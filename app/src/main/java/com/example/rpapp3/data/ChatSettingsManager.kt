@@ -48,6 +48,10 @@ class ChatSettingsManager private constructor(private val context: Context) {
         const val DEFAULT_MAX_OUTPUT_TOKENS = 16384
         const val DEFAULT_PRESENCE_PENALTY = 0f
         const val DEFAULT_FREQUENCY_PENALTY = 0f
+        
+        // TTS Defaults
+        const val DEFAULT_TTS_MODEL_ID = "eleven_v3"
+        const val DEFAULT_NARRATOR_VOICE_ID = ""
     }
 
     // Preference Keys
@@ -68,6 +72,11 @@ class ChatSettingsManager private constructor(private val context: Context) {
     private val SAFETY_DANGEROUS_CONTENT_KEY = stringPreferencesKey("safety_dangerous_content")
     private val SEPARATE_CHARACTER_DIALOGUE_KEY = booleanPreferencesKey("separate_character_dialogue")
     private val PROVIDE_CHOICES_ENABLED_KEY = booleanPreferencesKey("provide_choices_enabled")
+    
+    // TTS Settings Keys
+    private val TTS_ENABLED_KEY = booleanPreferencesKey("tts_enabled")
+    private val NARRATOR_VOICE_ID_KEY = stringPreferencesKey("narrator_voice_id")
+    private val TTS_MODEL_ID_KEY = stringPreferencesKey("tts_model_id")
 
     // Message Display Settings
     val filterMode: Flow<MessageFilterMode> = context.chatSettingsDataStore.data
@@ -189,6 +198,22 @@ class ChatSettingsManager private constructor(private val context: Context) {
             preferences[PROVIDE_CHOICES_ENABLED_KEY] ?: true // Default ON
         }
 
+    // TTS Settings
+    val ttsEnabled: Flow<Boolean> = context.chatSettingsDataStore.data
+        .map { preferences ->
+            preferences[TTS_ENABLED_KEY] ?: false // Default OFF
+        }
+
+    val narratorVoiceId: Flow<String> = context.chatSettingsDataStore.data
+        .map { preferences ->
+            preferences[NARRATOR_VOICE_ID_KEY] ?: DEFAULT_NARRATOR_VOICE_ID
+        }
+
+    val ttsModelId: Flow<String> = context.chatSettingsDataStore.data
+        .map { preferences ->
+            preferences[TTS_MODEL_ID_KEY] ?: DEFAULT_TTS_MODEL_ID
+        }
+
     // Setters for Message Display
     suspend fun setFilterMode(mode: MessageFilterMode) {
         context.chatSettingsDataStore.edit { preferences ->
@@ -294,6 +319,25 @@ class ChatSettingsManager private constructor(private val context: Context) {
         }
     }
 
+    // TTS Setters
+    suspend fun setTtsEnabled(enabled: Boolean) {
+        context.chatSettingsDataStore.edit { preferences ->
+            preferences[TTS_ENABLED_KEY] = enabled
+        }
+    }
+
+    suspend fun setNarratorVoiceId(voiceId: String) {
+        context.chatSettingsDataStore.edit { preferences ->
+            preferences[NARRATOR_VOICE_ID_KEY] = voiceId
+        }
+    }
+
+    suspend fun setTtsModelId(modelId: String) {
+        context.chatSettingsDataStore.edit { preferences ->
+            preferences[TTS_MODEL_ID_KEY] = modelId
+        }
+    }
+
     /**
      * Restore all settings to their default values
      */
@@ -316,6 +360,10 @@ class ChatSettingsManager private constructor(private val context: Context) {
             preferences[SAFETY_DANGEROUS_CONTENT_KEY] = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE.name
             preferences[SEPARATE_CHARACTER_DIALOGUE_KEY] = true
             preferences[PROVIDE_CHOICES_ENABLED_KEY] = true
+            // TTS defaults
+            preferences[TTS_ENABLED_KEY] = false
+            preferences[NARRATOR_VOICE_ID_KEY] = DEFAULT_NARRATOR_VOICE_ID
+            preferences[TTS_MODEL_ID_KEY] = DEFAULT_TTS_MODEL_ID
         }
     }
 
@@ -338,7 +386,11 @@ class ChatSettingsManager private constructor(private val context: Context) {
             safetySexuallyExplicit = safetySexuallyExplicit.first(),
             safetyDangerousContent = safetyDangerousContent.first(),
             separateCharacterDialogue = separateCharacterDialogue.first(),
-            provideChoicesEnabled = provideChoicesEnabled.first()
+            provideChoicesEnabled = provideChoicesEnabled.first(),
+            // TTS
+            ttsEnabled = ttsEnabled.first(),
+            narratorVoiceId = narratorVoiceId.first(),
+            ttsModelId = ttsModelId.first()
         )
     }
 }
@@ -360,5 +412,9 @@ data class ChatSettings(
     val safetySexuallyExplicit: SafetyThreshold = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE,
     val safetyDangerousContent: SafetyThreshold = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE,
     val separateCharacterDialogue: Boolean = true,
-    val provideChoicesEnabled: Boolean = true
+    val provideChoicesEnabled: Boolean = true,
+    // TTS Settings
+    val ttsEnabled: Boolean = false,
+    val narratorVoiceId: String = ChatSettingsManager.DEFAULT_NARRATOR_VOICE_ID,
+    val ttsModelId: String = ChatSettingsManager.DEFAULT_TTS_MODEL_ID
 )

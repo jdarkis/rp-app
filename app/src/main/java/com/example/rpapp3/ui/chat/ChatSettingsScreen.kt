@@ -12,6 +12,9 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,8 +24,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.rpapp3.data.ChatSettingsManager
+import com.example.rpapp3.data.ElevenLabsService
+import com.example.rpapp3.data.TTSManager
+import com.example.rpapp3.data.TTSPlaybackState
 import com.example.rpapp3.data.MessageFilterMode
 import com.example.rpapp3.data.SafetyThreshold
+import com.example.rpapp3.data.model.ElevenLabsTTSModels
+import com.example.rpapp3.data.model.Voice
 import com.example.rpapp3.viewmodel.ChatViewModel
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -67,6 +75,24 @@ fun ChatSettingsScreen(
     val separateCharacterDialogue by chatSettingsManager.separateCharacterDialogue.collectAsState(initial = true)
     val provideChoicesEnabled by chatSettingsManager.provideChoicesEnabled.collectAsState(initial = true)
     
+    // TTS Settings
+    val ttsEnabled by chatSettingsManager.ttsEnabled.collectAsState(initial = false)
+    val narratorVoiceId by chatSettingsManager.narratorVoiceId.collectAsState(initial = "")
+    val ttsModelId by chatSettingsManager.ttsModelId.collectAsState(initial = ChatSettingsManager.DEFAULT_TTS_MODEL_ID)
+    
+    // ElevenLabs Service and Voices
+    val elevenLabsService = remember { ElevenLabsService.getInstance(context) }
+    val ttsManager = remember { TTSManager.getInstance(context) }
+    var voices by remember { mutableStateOf<List<Voice>>(emptyList()) }
+    var voicesLoading by remember { mutableStateOf(false) }
+    val playbackState by ttsManager.playbackState.collectAsState()
+    val currentPlayingId by ttsManager.currentPlayingId.collectAsState()
+    
+    // Load voices when TTS section is opened
+    LaunchedEffect(Unit) {
+        elevenLabsService.initialize()
+    }
+    
     // Local state for inputs
     var delimiterInput by remember(customDelimiter) { mutableStateOf(customDelimiter) }
     var showSystemPromptDialog by remember { mutableStateOf(false) }
@@ -77,6 +103,7 @@ fun ChatSettingsScreen(
     var styleSectionExpanded by remember { mutableStateOf(false) }
     var safetySectionExpanded by remember { mutableStateOf(false) }
     var advancedSectionExpanded by remember { mutableStateOf(false) }
+    var ttsSectionExpanded by remember { mutableStateOf(false) }
     
     // System Prompt Dialog
     if (showSystemPromptDialog) {
@@ -352,6 +379,205 @@ fun ChatSettingsScreen(
                         valueFormatter = { it.roundToInt().toString() },
                         onValueChange = { scope.launch { chatSettingsManager.setMaxOutputTokens(it.roundToInt()) } }
                     )
+                }
+                
+                // Text-to-Speech Section
+                SettingsSection(
+                    title = "Text-to-Speech",
+                    expanded = ttsSectionExpanded,
+                    onToggle = { 
+                        ttsSectionExpanded = !ttsSectionExpanded
+                        // Load voices when opening
+                        if (!ttsSectionExpanded.not() && voices.isEmpty()) {
+                            voicesLoading = true
+                            scope.launch {
+                                elevenLabsService.getVoices().onSuccess {
+                                    voices = it
+                                }
+                                voicesLoading = false
+                            }
+                        }
+                    }
+                ) {
+                    Text(
+                        text = "Enable voice synthesis for AI messages using ElevenLabs",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    
+                    // TTS Enable Toggle
+                    SettingsToggle(
+                        title = "Enable Text-to-Speech",
+                        description = "Add play buttons to AI messages for voice playback",
+                        checked = ttsEnabled,
+                        onCheckedChange = { scope.launch { chatSettingsManager.setTtsEnabled(it) } }
+                    )
+                    
+                    if (ttsEnabled) {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                        
+                        // TTS Model Selector
+                        Text(
+                            text = "TTS Model",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "Select the ElevenLabs model for voice synthesis",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        
+                        var modelExpanded by remember { mutableStateOf(false) }
+                        ExposedDropdownMenuBox(
+                            expanded = modelExpanded,
+                            onExpandedChange = { modelExpanded = !modelExpanded },
+                            modifier = Modifier.padding(top = 8.dp)
+                        ) {
+                            val selectedModel = ElevenLabsTTSModels.DEFAULT_MODELS.find { it.modelId == ttsModelId }
+                            OutlinedTextField(
+                                value = selectedModel?.name ?: "Eleven V3",
+                                onValueChange = {},
+                                readOnly = true,
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelExpanded) },
+                                supportingText = { Text(selectedModel?.description ?: "") },
+                                modifier = Modifier.menuAnchor().fillMaxWidth()
+                            )
+                            ExposedDropdownMenu(
+                                expanded = modelExpanded,
+                                onDismissRequest = { modelExpanded = false }
+                            ) {
+                                ElevenLabsTTSModels.DEFAULT_MODELS.forEach { model ->
+                                    DropdownMenuItem(
+                                        text = { 
+                                            Column {
+                                                Text(model.name)
+                                                Text(
+                                                    model.description,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        },
+                                        onClick = {
+                                            scope.launch { chatSettingsManager.setTtsModelId(model.modelId) }
+                                            modelExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        // Narrator Voice Selector
+                        Text(
+                            text = "Narrator Voice",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "Voice used for narration and characters without assigned voices",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        
+                        if (voicesLoading) {
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+                        } else {
+                            var voiceExpanded by remember { mutableStateOf(false) }
+                            val selectedVoice = voices.find { it.voiceId == narratorVoiceId }
+                            
+                            ExposedDropdownMenuBox(
+                                expanded = voiceExpanded,
+                                onExpandedChange = { voiceExpanded = !voiceExpanded },
+                                modifier = Modifier.padding(top = 8.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = selectedVoice?.name ?: "Select a voice",
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    trailingIcon = { 
+                                        Row {
+                                            // Preview button
+                                            selectedVoice?.previewUrl?.let { url ->
+                                                val isPlaying = currentPlayingId == selectedVoice.voiceId && playbackState == TTSPlaybackState.PLAYING
+                                                IconButton(
+                                                    onClick = {
+                                                        if (isPlaying) {
+                                                            ttsManager.stop()
+                                                        } else {
+                                                            ttsManager.playFromUrl(url, selectedVoice.voiceId)
+                                                        }
+                                                    }
+                                                ) {
+                                                    Icon(
+                                                        if (isPlaying) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                                        contentDescription = "Preview"
+                                                    )
+                                                }
+                                            }
+                                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = voiceExpanded)
+                                        }
+                                    },
+                                    modifier = Modifier.menuAnchor().fillMaxWidth()
+                                )
+                                ExposedDropdownMenu(
+                                    expanded = voiceExpanded,
+                                    onDismissRequest = { voiceExpanded = false }
+                                ) {
+                                    voices.take(50).forEach { voice ->
+                                        DropdownMenuItem(
+                                            text = { 
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Column(modifier = Modifier.weight(1f)) {
+                                                        Text(voice.name)
+                                                        val details = listOfNotNull(
+                                                            voice.gender?.replaceFirstChar { it.uppercase() },
+                                                            voice.accent
+                                                        ).joinToString(" • ")
+                                                        if (details.isNotEmpty()) {
+                                                            Text(
+                                                                details,
+                                                                style = MaterialTheme.typography.bodySmall,
+                                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                            )
+                                                        }
+                                                    }
+                                                    voice.previewUrl?.let { url ->
+                                                        val isPlaying = currentPlayingId == voice.voiceId && playbackState == TTSPlaybackState.PLAYING
+                                                        IconButton(
+                                                            onClick = {
+                                                                if (isPlaying) {
+                                                                    ttsManager.stop()
+                                                                } else {
+                                                                    ttsManager.playFromUrl(url, voice.voiceId)
+                                                                }
+                                                            }
+                                                        ) {
+                                                            Icon(
+                                                                if (isPlaying) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                                                contentDescription = "Preview"
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            onClick = {
+                                                scope.launch { chatSettingsManager.setNarratorVoiceId(voice.voiceId) }
+                                                voiceExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 
                 // Response Style Section

@@ -30,6 +30,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.rpapp3.data.CharacterFieldType
 import com.example.rpapp3.ui.components.AIEnhancedTextField
+import com.example.rpapp3.ui.components.GenderSelector
+import com.example.rpapp3.ui.components.LanguageSelector
+import com.example.rpapp3.ui.components.VoiceSelector
 import com.example.rpapp3.viewmodel.CharacterViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -53,7 +56,22 @@ fun CreateCharacterScreen(
     var videoUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     
+    // Voice settings
+    var language by remember { mutableStateOf("en") }
+    var gender by remember { mutableStateOf<String?>(null) }
+    var voiceId by remember { mutableStateOf<String?>(null) }
+    
+    val voices by viewModel.voices.collectAsState()
+    val voicesLoading by viewModel.voicesLoading.collectAsState()
+    val ttsManager = viewModel.ttsManager
+    
     val snackbarHostState = remember { SnackbarHostState() }
+    
+    // Initialize viewModel and load voices
+    LaunchedEffect(Unit) {
+        viewModel.initializeWithContext(context)
+        viewModel.loadVoices()
+    }
     
     // Profile picture picker
     val profilePicturePickerLauncher = rememberLauncherForActivityResult(
@@ -273,6 +291,47 @@ fun CreateCharacterScreen(
                 isFormLoading = viewModel.isLoading
             )
             
+            HorizontalDivider()
+            
+            // Voice Settings Section
+            Text(
+                text = "Voice Settings",
+                style = MaterialTheme.typography.titleMedium
+            )
+            
+            LanguageSelector(
+                selectedLanguage = language,
+                onLanguageSelected = { language = it },
+                enabled = !viewModel.isLoading,
+                modifier = Modifier.fillMaxWidth()
+            )
+            
+            Text(
+                text = "Gender",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            GenderSelector(
+                selectedGender = gender,
+                onGenderSelected = { gender = it },
+                enabled = !viewModel.isLoading
+            )
+            
+            ttsManager?.let { manager ->
+                VoiceSelector(
+                    voices = voices,
+                    selectedVoiceId = voiceId,
+                    onVoiceSelected = { voice -> voiceId = voice?.voiceId },
+                    ttsManager = manager,
+                    enabled = !viewModel.isLoading,
+                    isLoading = voicesLoading,
+                    filterGender = gender,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            
+            HorizontalDivider()
+            
             // Photos section
             Text(
                 text = "Photos",
@@ -338,6 +397,9 @@ fun CreateCharacterScreen(
                         profilePictureUri = profilePictureUri,
                         photoUris = photoUris,
                         videoUris = videoUris,
+                        language = language,
+                        voiceId = voiceId,
+                        gender = gender,
                         onSuccess = onCharacterCreated,
                         onError = { errorMessage = it }
                     )

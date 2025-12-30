@@ -21,6 +21,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -36,6 +37,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.rpapp3.data.ChatSettingsManager
 import com.example.rpapp3.data.MessageFilterMode
+import com.example.rpapp3.data.TTSPlaybackState
 import com.example.rpapp3.data.model.ChatMessage
 import com.example.rpapp3.data.model.Character
 import com.example.rpapp3.viewmodel.ChatViewModel
@@ -203,6 +205,12 @@ fun ChatScreen(
     val separateCharacterDialogue by chatSettingsManager.separateCharacterDialogue.collectAsState(initial = true)
     val provideChoicesEnabled by chatSettingsManager.provideChoicesEnabled.collectAsState(initial = true)
     
+    // TTS settings
+    val ttsEnabled by chatSettingsManager.ttsEnabled.collectAsState(initial = false)
+    val ttsManager = viewModel.ttsManager
+    val playbackState = ttsManager?.playbackState?.collectAsState()
+    val currentPlayingId = ttsManager?.currentPlayingId?.collectAsState()
+    
     // State for pending input text (from choice selection)
     var pendingInputText by remember { mutableStateOf<String?>(null) }
     
@@ -326,7 +334,13 @@ fun ChatScreen(
                         },
                         onChoiceSelected = { choiceText ->
                             pendingInputText = choiceText
-                        }
+                        },
+                        ttsEnabled = ttsEnabled,
+                        isPlayingTTS = playbackState?.value == TTSPlaybackState.PLAYING,
+                        isLoadingTTS = playbackState?.value == TTSPlaybackState.LOADING,
+                        currentPlayingSegmentId = currentPlayingId?.value,
+                        onSpeak = { text, characterId -> viewModel.speakText(text, characterId) },
+                        onStopSpeaking = { viewModel.stopSpeaking() }
                     )
                 }
                 
@@ -371,10 +385,16 @@ fun MessageBubble(
     onDelete: () -> Unit,
     onRegenerate: (() -> Unit)?,
     onCharacterClick: ((String) -> Unit)? = null,
-    onChoiceSelected: ((String) -> Unit)? = null
+    onChoiceSelected: ((String) -> Unit)? = null,
+    ttsEnabled: Boolean = false,
+    isPlayingTTS: Boolean = false,
+    isLoadingTTS: Boolean = false,
+    currentPlayingSegmentId: String? = null,
+    onSpeak: ((text: String, characterId: String?) -> Unit)? = null,
+    onStopSpeaking: (() -> Unit)? = null
 ) {
     val isUser = message.isUser
-    var showMenu by remember { mutableStateOf(false) }
+    var showMenuForSegment by remember { mutableStateOf<Int?>(null) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     
     // Delete confirmation dialog
@@ -490,7 +510,7 @@ fun MessageBubble(
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
-                                    imageVector = Icons.Filled.MenuBook,
+                                    imageVector = Icons.AutoMirrored.Filled.MenuBook,
                                     contentDescription = "Narrator",
                                     modifier = Modifier.size(20.dp),
                                     tint = MaterialTheme.colorScheme.onTertiaryContainer
@@ -571,7 +591,7 @@ fun MessageBubble(
                             tonalElevation = if (isUser) 0.dp else 1.dp,
                             modifier = Modifier.combinedClickable(
                                 onClick = { },
-                                onLongClick = { if (isLastSegment) showMenu = true }
+                                onLongClick = { showMenuForSegment = index }
                             )
                         ) {
                             Text(
@@ -582,27 +602,66 @@ fun MessageBubble(
                             )
                         }
                         
-                        // Dropdown menu only on last segment
-                        if (isLastSegment) {
-                            DropdownMenu(
-                                expanded = showMenu,
-                                onDismissRequest = { showMenu = false }
-                            ) {
+                        // Dropdown menu - TTS on all segments, other actions on last segment only
+                        DropdownMenu(
+                            expanded = showMenuForSegment == index,
+                            onDismissRequest = { showMenuForSegment = null }
+                        ) {
+                            // TTS Speak button for AI messages - available on all segments
+                            if (!isUser && ttsEnabled && onSpeak != null && onStopSpeaking != null) {
+                                val segmentId = "${message.id}_$index"
+                                val isThisSegmentPlaying = currentPlayingSegmentId == segmentId && isPlayingTTS
+                                val isThisSegmentLoading = currentPlayingSegmentId == segmentId && isLoadingTTS
+                                
                                 DropdownMenuItem(
-                                    text = { Text("Copy") },
+                                    text = { 
+                                        Text(when {
+                                            isThisSegmentPlaying -> "Stop Speaking"
+                                            isThisSegmentLoading -> "Generating..."
+                                            else -> "Speak"
+                                        })
+                                    },
                                     onClick = {
-                                        showMenu = false
-                                        onCopy(message.text)
+                                                showMenuForSegment = null
+                                        if (isThisSegmentPlaying) {
+                                            onStopSpeaking()
+                                        } else if (!isThisSegmentLoading) {
+                                            // Pass the segment text and character info
+                                            onSpeak(segment.text, segmentCharacter?.id)
+                                        }
                                     },
                                     leadingIcon = {
-                                        Icon(Icons.Default.ContentCopy, contentDescription = null)
-                                    }
+                                        when {
+                                            isThisSegmentLoading -> CircularProgressIndicator(
+                                                modifier = Modifier.size(24.dp),
+                                                strokeWidth = 2.dp
+                                            )
+                                            isThisSegmentPlaying -> Icon(Icons.Default.Stop, contentDescription = null)
+                                            else -> Icon(Icons.Default.VolumeUp, contentDescription = null)
+                                        }
+                                    },
+                                    enabled = !isThisSegmentLoading
                                 )
-                                
+                            }
+                            
+                            // Copy segment text
+                            DropdownMenuItem(
+                                text = { Text(if (isLastSegment) "Copy All" else "Copy Segment") },
+                                onClick = {
+                                    showMenuForSegment = null
+                                    onCopy(if (isLastSegment) message.text else segment.text)
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.ContentCopy, contentDescription = null)
+                                }
+                            )
+                            
+                            // Delete and Regenerate only on last segment
+                            if (isLastSegment) {
                                 DropdownMenuItem(
                                     text = { Text("Delete") },
                                     onClick = {
-                                        showMenu = false
+                                                showMenuForSegment = null
                                         showDeleteConfirmDialog = true
                                     },
                                     leadingIcon = {
@@ -618,7 +677,7 @@ fun MessageBubble(
                                     DropdownMenuItem(
                                         text = { Text("Regenerate") },
                                         onClick = {
-                                            showMenu = false
+                                                    showMenuForSegment = null
                                             onRegenerate()
                                         },
                                         leadingIcon = {

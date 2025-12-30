@@ -1,6 +1,7 @@
 package com.example.rpapp3.viewmodel
 
 import android.content.Context
+import android.util.Log
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
@@ -8,10 +9,14 @@ import androidx.lifecycle.viewModelScope
 import com.example.rpapp3.data.ApiKeyManager
 import com.example.rpapp3.data.ChatSettings
 import com.example.rpapp3.data.ChatSettingsManager
+import com.example.rpapp3.data.ElevenLabsService
 import com.example.rpapp3.data.SafetyThreshold
+import com.example.rpapp3.data.TTSManager
+import com.example.rpapp3.data.TTSPlaybackState
 import com.example.rpapp3.data.model.Character
 import com.example.rpapp3.data.model.Chat
 import com.example.rpapp3.data.model.ChatMessage
+import com.example.rpapp3.data.model.ElevenLabsTTSModels
 import com.example.rpapp3.data.model.World
 import com.example.rpapp3.data.repository.CharacterRepository
 import com.example.rpapp3.data.repository.ChatRepository
@@ -37,6 +42,11 @@ class ChatViewModel : ViewModel() {
     private var chatSettingsManager: ChatSettingsManager? = null
     private var currentApiKey: String? = null
     private var currentSettings: ChatSettings = ChatSettings()
+    
+    // TTS services
+    private var elevenLabsService: ElevenLabsService? = null
+    private var _ttsManager: TTSManager? = null
+    val ttsManager: TTSManager? get() = _ttsManager
     
     private val worldRepository = WorldRepository()
     private val characterRepository = CharacterRepository()
@@ -82,6 +92,8 @@ class ChatViewModel : ViewModel() {
         if (apiKeyManager == null) {
             apiKeyManager = ApiKeyManager.getInstance(context)
             chatSettingsManager = ChatSettingsManager.getInstance(context)
+            elevenLabsService = ElevenLabsService.getInstance(context)
+            _ttsManager = TTSManager.getInstance(context)
             viewModelScope.launch {
                 apiKeyManager?.initializeDefaults()
                 // Reset to first key on app start - quotas may have reset
@@ -89,6 +101,8 @@ class ChatViewModel : ViewModel() {
                 currentApiKey = apiKeyManager?.getCurrentApiKey()
                 // Load current settings
                 currentSettings = chatSettingsManager?.getCurrentSettings() ?: ChatSettings()
+                // Initialize ElevenLabs
+                elevenLabsService?.initialize()
             }
         }
     }
@@ -427,14 +441,32 @@ class ChatViewModel : ViewModel() {
                 val messageIndex = _messages.size - 1
                 
                 val responseFlow = chatSession?.sendMessageStream(userMessage)
+                
+                if (responseFlow == null) {
+                    // Remove the placeholder message if stream failed to start
+                    _messages.removeAt(messageIndex)
+                    _error.value = "Failed to get response from AI. Please try again."
+                    _isLoading.value = false
+                    return
+                }
+                
                 val fullResponse = StringBuilder()
                 
-                responseFlow?.collect { chunk ->
+                responseFlow.collect { chunk ->
                     chunk.text?.let { text ->
                         fullResponse.append(text)
                         // Update the message in place for streaming effect
                         _messages[messageIndex] = streamingAiMessage.copy(text = fullResponse.toString())
                     }
+                }
+                
+                // Check if we actually got any response content
+                if (fullResponse.isEmpty()) {
+                    // Remove the empty placeholder message
+                    _messages.removeAt(messageIndex)
+                    _error.value = "AI returned an empty response. Please try again."
+                    _isLoading.value = false
+                    return
                 }
                 
                 // Save final message to Firestore
@@ -443,16 +475,21 @@ class ChatViewModel : ViewModel() {
             } else {
                 // Non-streaming mode (original behavior)
                 val response = chatSession?.sendMessage(userMessage)
+                val responseText = response?.text
                 
-                response?.text?.let { responseText ->
-                    // Parse the response to create separate messages for narrator and characters
-                    val parsedMessages = parseResponseIntoMessages(responseText, chatId)
-                    
-                    parsedMessages.forEach { aiMessage ->
-                        _messages.add(aiMessage)
-                        // Save AI message to Firestore
-                        chatRepository.addMessage(aiMessage)
-                    }
+                if (responseText.isNullOrBlank()) {
+                    _error.value = "AI returned an empty response. Please try again."
+                    _isLoading.value = false
+                    return
+                }
+                
+                // Parse the response to create separate messages for narrator and characters
+                val parsedMessages = parseResponseIntoMessages(responseText, chatId)
+                
+                parsedMessages.forEach { aiMessage ->
+                    _messages.add(aiMessage)
+                    // Save AI message to Firestore
+                    chatRepository.addMessage(aiMessage)
                 }
             }
             
@@ -627,5 +664,191 @@ class ChatViewModel : ViewModel() {
     
     fun clearError() {
         _error.value = null
+    }
+    
+    /**
+     * Speak a message using TTS
+     * Uses character voice if available, otherwise narrator voice from settings
+     */
+    fun speakMessage(messageId: String) {
+        Log.d("ChatViewModel", "speakMessage called with messageId: $messageId")
+        Log.d("ChatViewModel", "Messages count: ${_messages.size}")
+        
+        val message = _messages.find { it.id == messageId }
+        if (message == null) {
+            Log.e("ChatViewModel", "Message not found for id: $messageId")
+            Log.d("ChatViewModel", "Available message IDs: ${_messages.map { it.id }}")
+            return
+        }
+        
+        if (message.isUser) {
+            Log.d("ChatViewModel", "Skipping user message")
+            return
+        }
+        
+        Log.d("ChatViewModel", "Found message: ${message.text.take(50)}...")
+        
+        viewModelScope.launch {
+            try {
+                // Reload settings to get latest TTS config
+                currentSettings = chatSettingsManager?.getCurrentSettings() ?: ChatSettings()
+                Log.d("ChatViewModel", "TTS enabled: ${currentSettings.ttsEnabled}")
+                Log.d("ChatViewModel", "Narrator voice ID: ${currentSettings.narratorVoiceId}")
+                Log.d("ChatViewModel", "TTS model ID: ${currentSettings.ttsModelId}")
+                
+                if (!currentSettings.ttsEnabled) {
+                    Log.w("ChatViewModel", "TTS is disabled in settings")
+                    return@launch
+                }
+                
+                // Determine voice to use
+                var voiceId = currentSettings.narratorVoiceId.takeIf { it.isNotBlank() }
+                var language: String? = null
+                
+                // Check if message has a character with a specific voice
+                message.characterId?.let { charId ->
+                    val character = _characters.value.find { it.id == charId }
+                        ?: _worldCharacters.value.find { it.id == charId }
+                    character?.let {
+                        if (!it.voiceId.isNullOrBlank()) {
+                            voiceId = it.voiceId
+                            language = it.language
+                            Log.d("ChatViewModel", "Using character voice: $voiceId")
+                        }
+                    }
+                }
+                
+                if (voiceId.isNullOrBlank()) {
+                    Log.e("ChatViewModel", "No voice ID configured - set a narrator voice in Chat Settings")
+                    return@launch
+                }
+                
+                val modelId = currentSettings.ttsModelId.takeIf { it.isNotBlank() }
+                    ?: ElevenLabsTTSModels.DEFAULT_MODEL_ID
+                
+                // Clean text - remove dialogue markers and action markers
+                val cleanText = message.text
+                    .replace(Regex("""\[[^\]]+\]:\s*"""), "") // Remove [Character]: prefixes
+                    .replace(Regex("""\[ACTIONS\].*""", RegexOption.DOT_MATCHES_ALL), "") // Remove action choices
+                    .trim()
+                
+                if (cleanText.isBlank()) {
+                    Log.w("ChatViewModel", "Message text is empty after cleaning")
+                    return@launch
+                }
+                
+                Log.d("ChatViewModel", "Generating TTS: voice=$voiceId, model=$modelId, text=${cleanText.take(100)}...")
+                
+                val result = elevenLabsService?.textToSpeech(
+                    text = cleanText,
+                    voiceId = voiceId!!,
+                    modelId = modelId,
+                    language = language
+                )
+                
+                if (result == null) {
+                    Log.e("ChatViewModel", "ElevenLabsService is null!")
+                    return@launch
+                }
+                
+                result.onSuccess { audioData ->
+                    Log.d("ChatViewModel", "TTS generation successful, playing audio (${audioData.size} bytes)")
+                    _ttsManager?.playFromBytes(audioData, messageId)
+                }.onFailure { e ->
+                    Log.e("ChatViewModel", "TTS generation failed: ${e.message}", e)
+                }
+            } catch (e: Exception) {
+                Log.e("ChatViewModel", "Exception in speakMessage: ${e.message}", e)
+            }
+        }
+    }
+    
+    /**
+     * Speak text directly using TTS (for per-segment playback)
+     * Uses character voice if characterId is provided, otherwise narrator voice
+     */
+    fun speakText(text: String, characterId: String? = null) {
+        Log.d("ChatViewModel", "speakText called with text: ${text.take(50)}..., characterId: $characterId")
+        
+        viewModelScope.launch {
+            try {
+                // Reload settings to get latest TTS config
+                currentSettings = chatSettingsManager?.getCurrentSettings() ?: ChatSettings()
+                
+                if (!currentSettings.ttsEnabled) {
+                    Log.w("ChatViewModel", "TTS is disabled in settings")
+                    return@launch
+                }
+                
+                // Determine voice to use
+                var voiceId = currentSettings.narratorVoiceId.takeIf { it.isNotBlank() }
+                var language: String? = null
+                
+                // Check if we have a character with a specific voice
+                characterId?.let { charId ->
+                    val character = _characters.value.find { it.id == charId }
+                        ?: _worldCharacters.value.find { it.id == charId }
+                    character?.let { char ->
+                        if (!char.voiceId.isNullOrBlank()) {
+                            voiceId = char.voiceId
+                            language = char.language
+                            Log.d("ChatViewModel", "Using character voice: $voiceId for ${char.name}")
+                        }
+                    }
+                }
+                
+                if (voiceId.isNullOrBlank()) {
+                    Log.e("ChatViewModel", "No voice ID configured - set a narrator voice in Chat Settings")
+                    return@launch
+                }
+                
+                val modelId = currentSettings.ttsModelId.takeIf { it.isNotBlank() }
+                    ?: ElevenLabsTTSModels.DEFAULT_MODEL_ID
+                
+                // Clean the text - remove any remaining markers
+                val cleanText = text
+                    .replace(Regex("""\[[^\]]+\]:\s*"""), "") // Remove [Character]: prefixes
+                    .replace(Regex("""\[ACTIONS\].*""", RegexOption.DOT_MATCHES_ALL), "") // Remove action choices
+                    .trim()
+                
+                if (cleanText.isBlank()) {
+                    Log.w("ChatViewModel", "Text is empty after cleaning")
+                    return@launch
+                }
+                
+                Log.d("ChatViewModel", "Generating TTS: voice=$voiceId, model=$modelId")
+                
+                // Generate a unique segment ID for tracking
+                val segmentId = "${System.currentTimeMillis()}_${text.hashCode()}"
+                
+                val result = elevenLabsService?.textToSpeech(
+                    text = cleanText,
+                    voiceId = voiceId!!,
+                    modelId = modelId,
+                    language = language
+                )
+                
+                if (result == null) {
+                    Log.e("ChatViewModel", "ElevenLabsService is null!")
+                    return@launch
+                }
+                
+                result.onSuccess { audioData ->
+                    Log.d("ChatViewModel", "TTS generation successful, playing audio (${audioData.size} bytes)")
+                    _ttsManager?.playFromBytes(audioData, segmentId)
+                }.onFailure { e ->
+                    Log.e("ChatViewModel", "TTS generation failed: ${e.message}", e)
+                }
+            } catch (e: Exception) {
+                Log.e("ChatViewModel", "Exception in speakText: ${e.message}", e)
+            }
+        }
+    }
+    
+    /**
+     * Stop any currently playing TTS
+     */
+    fun stopSpeaking() {
+        _ttsManager?.stop()
     }
 }

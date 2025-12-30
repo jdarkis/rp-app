@@ -30,6 +30,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.rpapp3.data.CharacterFieldType
 import com.example.rpapp3.ui.components.AIEnhancedTextField
+import com.example.rpapp3.ui.components.GenderSelector
+import com.example.rpapp3.ui.components.LanguageSelector
+import com.example.rpapp3.ui.components.VoiceSelector
 import com.example.rpapp3.viewmodel.CharacterViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -57,7 +60,22 @@ fun EditCharacterScreen(
     var showSelectFromPhotosDialog by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     
+    // Voice settings
+    var language by remember { mutableStateOf("en") }
+    var gender by remember { mutableStateOf<String?>(null) }
+    var voiceId by remember { mutableStateOf<String?>(null) }
+    
+    val voices by viewModel.voices.collectAsState()
+    val voicesLoading by viewModel.voicesLoading.collectAsState()
+    val ttsManager = viewModel.ttsManager
+    
     val snackbarHostState = remember { SnackbarHostState() }
+    
+    // Initialize viewModel and load voices
+    LaunchedEffect(Unit) {
+        viewModel.initializeWithContext(context)
+        viewModel.loadVoices()
+    }
     
     // Profile picture picker
     val profilePicturePickerLauncher = rememberLauncherForActivityResult(
@@ -125,6 +143,9 @@ fun EditCharacterScreen(
             personality = it.personality
             systemInstructions = it.systemInstructions
             currentProfilePictureUrl = it.profilePictureUrl
+            language = it.language
+            gender = it.gender
+            voiceId = it.voiceId
         }
     }
     
@@ -311,6 +332,47 @@ fun EditCharacterScreen(
                 isFormLoading = viewModel.isLoading
             )
             
+            HorizontalDivider()
+            
+            // Voice Settings Section
+            Text(
+                text = "Voice Settings",
+                style = MaterialTheme.typography.titleMedium
+            )
+            
+            LanguageSelector(
+                selectedLanguage = language,
+                onLanguageSelected = { language = it },
+                enabled = !viewModel.isLoading,
+                modifier = Modifier.fillMaxWidth()
+            )
+            
+            Text(
+                text = "Gender",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            GenderSelector(
+                selectedGender = gender,
+                onGenderSelected = { gender = it },
+                enabled = !viewModel.isLoading
+            )
+            
+            ttsManager?.let { manager ->
+                VoiceSelector(
+                    voices = voices,
+                    selectedVoiceId = voiceId,
+                    onVoiceSelected = { voice -> voiceId = voice?.voiceId },
+                    ttsManager = manager,
+                    enabled = !viewModel.isLoading,
+                    isLoading = voicesLoading,
+                    filterGender = gender,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            
+            HorizontalDivider()
+            
             // Existing photos
             character?.let { char ->
                 if (char.photoUrls.isNotEmpty()) {
@@ -408,7 +470,10 @@ fun EditCharacterScreen(
                                 appearance = appearance,
                                 personality = personality,
                                 systemInstructions = systemInstructions,
-                                profilePictureUrl = currentProfilePictureUrl
+                                profilePictureUrl = currentProfilePictureUrl,
+                                language = language,
+                                voiceId = voiceId,
+                                gender = gender
                             ),
                             newProfilePictureUri = newProfilePictureUri,
                             newPhotoUris = newPhotoUris,

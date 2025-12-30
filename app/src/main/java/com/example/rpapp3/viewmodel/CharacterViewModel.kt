@@ -7,7 +7,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.rpapp3.data.ElevenLabsService
+import com.example.rpapp3.data.TTSManager
 import com.example.rpapp3.data.model.Character
+import com.example.rpapp3.data.model.Voice
 import com.example.rpapp3.data.repository.CharacterRepository
 import com.example.rpapp3.data.repository.MediaStorageService
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,11 +23,21 @@ class CharacterViewModel : ViewModel() {
     private val characterRepository = CharacterRepository()
     private val mediaStorageService = MediaStorageService()
     
+    private var elevenLabsService: ElevenLabsService? = null
+    private var _ttsManager: TTSManager? = null
+    val ttsManager: TTSManager? get() = _ttsManager
+    
     private val _characters = MutableStateFlow<List<Character>>(emptyList())
     val characters: StateFlow<List<Character>> = _characters
     
     private val _currentCharacter = MutableStateFlow<Character?>(null)
     val currentCharacter: StateFlow<Character?> = _currentCharacter
+    
+    private val _voices = MutableStateFlow<List<Voice>>(emptyList())
+    val voices: StateFlow<List<Voice>> = _voices
+    
+    private val _voicesLoading = MutableStateFlow(false)
+    val voicesLoading: StateFlow<Boolean> = _voicesLoading
     
     var isLoading by mutableStateOf(false)
         private set
@@ -34,6 +47,30 @@ class CharacterViewModel : ViewModel() {
     
     var error by mutableStateOf<String?>(null)
         private set
+    
+    fun initializeWithContext(context: Context) {
+        if (elevenLabsService == null) {
+            elevenLabsService = ElevenLabsService.getInstance(context)
+            _ttsManager = TTSManager.getInstance(context)
+            viewModelScope.launch {
+                elevenLabsService?.initialize()
+            }
+        }
+    }
+    
+    fun loadVoices() {
+        if (_voices.value.isNotEmpty() || _voicesLoading.value) return
+        
+        viewModelScope.launch {
+            _voicesLoading.value = true
+            elevenLabsService?.getVoices()?.onSuccess { voiceList ->
+                _voices.value = voiceList
+            }?.onFailure { e ->
+                Log.e("CharacterViewModel", "Failed to load voices: ${e.message}")
+            }
+            _voicesLoading.value = false
+        }
+    }
     
     fun loadCharacters(worldId: String) {
         viewModelScope.launch {
@@ -66,6 +103,9 @@ class CharacterViewModel : ViewModel() {
         profilePictureUri: Uri?,
         photoUris: List<Uri>,
         videoUris: List<Uri>,
+        language: String = "en",
+        voiceId: String? = null,
+        gender: String? = null,
         onSuccess: () -> Unit,
         onError: (String) -> Unit
     ) {
@@ -86,7 +126,10 @@ class CharacterViewModel : ViewModel() {
                     description = description,
                     appearance = appearance,
                     personality = personality,
-                    systemInstructions = systemInstructions
+                    systemInstructions = systemInstructions,
+                    language = language,
+                    voiceId = voiceId,
+                    gender = gender
                 )
                 
                 val createdCharacter = characterRepository.createCharacter(character).getOrThrow()

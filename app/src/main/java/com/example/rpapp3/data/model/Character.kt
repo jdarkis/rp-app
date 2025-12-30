@@ -11,6 +11,10 @@ data class Character(
     val photoUrls: List<String> = emptyList(),
     val videoUrls: List<String> = emptyList(),
     val profilePictureUrl: String? = null,
+    // TTS Settings
+    val language: String = "en",
+    val voiceId: String? = null,
+    val gender: String? = null, // "male", "female", or null
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 ) {
@@ -28,6 +32,9 @@ data class Character(
         "photoUrls" to photoUrls,
         "videoUrls" to videoUrls,
         "profilePictureUrl" to profilePictureUrl,
+        "language" to language,
+        "voiceId" to voiceId,
+        "gender" to gender,
         "createdAt" to createdAt,
         "updatedAt" to updatedAt
     )
@@ -46,6 +53,9 @@ data class Character(
                 photoUrls = (map["photoUrls"] as? List<String>) ?: emptyList(),
                 videoUrls = (map["videoUrls"] as? List<String>) ?: emptyList(),
                 profilePictureUrl = map["profilePictureUrl"] as? String,
+                language = map["language"] as? String ?: "en",
+                voiceId = map["voiceId"] as? String,
+                gender = map["gender"] as? String,
                 createdAt = (map["createdAt"] as? Long) ?: System.currentTimeMillis(),
                 updatedAt = (map["updatedAt"] as? Long) ?: System.currentTimeMillis()
             )
