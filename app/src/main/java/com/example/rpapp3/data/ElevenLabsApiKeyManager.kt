@@ -31,7 +31,9 @@ class ElevenLabsApiKeyManager(private val context: Context) {
             "sk_86cea6633ec80a0c9752c82789d8c38f97cf07ab578326ea",
             "sk_e5946aba965167bf69b71155f08639210693d2f5631b9ccc",
             "sk_37a5206a40da6d4ac941a1989960d77d26135a2f0e8dc78d",
-            "sk_d018a069b43756f3772383fe4f81e3f1c89fd085a5fd47a2"
+            "sk_d018a069b43756f3772383fe4f81e3f1c89fd085a5fd47a2",
+            "sk_0c94f52354cfe6b56e90958e0fe0698834b35a61c392c788",
+            "sk_f05b202f8cd38214c3e955df22968d7cd5de8338fb860c20"
         )
         
         @Volatile
