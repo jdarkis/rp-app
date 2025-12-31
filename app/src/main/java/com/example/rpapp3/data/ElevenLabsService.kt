@@ -3,6 +3,7 @@ package com.example.rpapp3.data
 import android.content.Context
 import android.util.Log
 import com.example.rpapp3.data.model.ElevenLabsTTSModels
+import com.example.rpapp3.data.model.PresetVoices
 import com.example.rpapp3.data.model.TTSModel
 import com.example.rpapp3.data.model.Voice
 import kotlinx.coroutines.Dispatchers
@@ -22,6 +23,7 @@ class ElevenLabsService(private val context: Context) {
         private const val VOICES_ENDPOINT = "/v2/voices"
         private const val MODELS_ENDPOINT = "/v1/models"
         private const val TTS_ENDPOINT = "/v1/text-to-speech"
+        private const val SUBSCRIPTION_ENDPOINT = "/v1/user/subscription"
         
         @Volatile
         private var INSTANCE: ElevenLabsService? = null
@@ -34,6 +36,16 @@ class ElevenLabsService(private val context: Context) {
     }
     
     /**
+     * Subscription info data class
+     */
+    data class SubscriptionInfo(
+        val tier: String,
+        val characterCount: Int,
+        val characterLimit: Int,
+        val remainingCharacters: Int
+    )
+    
+    /**
      * Initialize the service - call this on app startup
      */
     suspend fun initialize() {
@@ -41,16 +53,87 @@ class ElevenLabsService(private val context: Context) {
     }
     
     /**
-     * Get all available voices from ElevenLabs
+     * Get subscription info for a specific API key
+     * @param apiKey The ElevenLabs API key to check
+     * @return Result containing subscription info or error
+     */
+    suspend fun getSubscriptionInfoForKey(apiKey: String): Result<SubscriptionInfo> = withContext(Dispatchers.IO) {
+        try {
+            val url = URL("$BASE_URL$SUBSCRIPTION_ENDPOINT")
+            val connection = url.openConnection() as HttpURLConnection
+            
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("xi-api-key", apiKey)
+            connection.setRequestProperty("Accept", "application/json")
+            connection.connectTimeout = 10000
+            connection.readTimeout = 10000
+            
+            val responseCode = connection.responseCode
+            
+            if (responseCode != 200) {
+                val errorBody = connection.errorStream?.bufferedReader()?.readText() ?: "Unknown error"
+                connection.disconnect()
+                return@withContext Result.failure(Exception("Failed to get subscription info: $errorBody"))
+            }
+            
+            val response = connection.inputStream.bufferedReader().readText()
+            connection.disconnect()
+            
+            val jsonObject = JSONObject(response)
+            val tier = jsonObject.optString("tier", "unknown")
+            val characterCount = jsonObject.optInt("character_count", 0)
+            val characterLimit = jsonObject.optInt("character_limit", 0)
+            val remaining = characterLimit - characterCount
+            
+            Result.success(SubscriptionInfo(
+                tier = tier,
+                characterCount = characterCount,
+                characterLimit = characterLimit,
+                remainingCharacters = remaining
+            ))
+        } catch (e: Exception) {
+            Log.e("ElevenLabsService", "Failed to get subscription info: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+    
+    /**
+     * Get all available voices from ElevenLabs.
+     * Merges preset custom voices with API results, with presets appearing first.
      */
     suspend fun getVoices(): Result<List<Voice>> = withContext(Dispatchers.IO) {
         try {
             val response = makeRequest(VOICES_ENDPOINT)
-            val voicesResponse = parseVoicesResponse(response)
-            Result.success(voicesResponse)
+            val apiVoices = parseVoicesResponse(response)
+            
+            // Get preset voice IDs to filter out duplicates from API response
+            val presetVoiceIds = PresetVoices.PRESET_VOICES.map { it.voiceId }.toSet()
+            
+            // Filter out any API voices that match preset voice IDs (to avoid duplicates)
+            // but update preset voices with actual preview URLs from API if available
+            val updatedPresetVoices = PresetVoices.PRESET_VOICES.map { preset ->
+                val apiMatch = apiVoices.find { it.voiceId == preset.voiceId }
+                if (apiMatch != null) {
+                    // Use preview URL from API if available, merge labels
+                    preset.copy(
+                        previewUrl = apiMatch.previewUrl ?: preset.previewUrl,
+                        labels = preset.labels + apiMatch.labels
+                    )
+                } else {
+                    preset
+                }
+            }
+            
+            val filteredApiVoices = apiVoices.filter { it.voiceId !in presetVoiceIds }
+            
+            // Combine preset voices (at the top) with API voices
+            val allVoices = updatedPresetVoices + filteredApiVoices
+            
+            Result.success(allVoices)
         } catch (e: Exception) {
             Log.e("ElevenLabsService", "Failed to get voices: ${e.message}", e)
-            Result.failure(e)
+            // Even if API fails, return preset voices
+            Result.success(PresetVoices.PRESET_VOICES)
         }
     }
     

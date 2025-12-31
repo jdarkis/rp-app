@@ -157,6 +157,19 @@ class ElevenLabsApiKeyManager(private val context: Context) {
     }
     
     /**
+     * Set the active API key by index
+     * Allows manual selection of which key to use
+     */
+    suspend fun setActiveKeyIndex(index: Int) {
+        val keys = apiKeys.first()
+        if (index >= 0 && index < keys.size) {
+            context.elevenLabsDataStore.edit { preferences ->
+                preferences[CURRENT_INDEX_KEY] = index
+            }
+        }
+    }
+    
+    /**
      * Reset the key index to 0
      */
     suspend fun resetKeyIndex() {

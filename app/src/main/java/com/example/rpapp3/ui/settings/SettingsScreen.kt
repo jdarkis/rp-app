@@ -10,6 +10,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,6 +23,7 @@ import androidx.compose.ui.unit.dp
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
     onNavigateToApiKeys: () -> Unit,
+    onNavigateToElevenLabsApiKeys: () -> Unit,
     onNavigateToAppearance: () -> Unit
 ) {
     Scaffold(
@@ -74,9 +76,16 @@ fun SettingsScreen(
                 
                 SettingsCategoryItem(
                     icon = Icons.Default.Key,
-                    title = "API Keys",
+                    title = "Gemini API Keys",
                     subtitle = "Manage your Gemini API keys",
                     onClick = onNavigateToApiKeys
+                )
+                
+                SettingsCategoryItem(
+                    icon = Icons.Default.RecordVoiceOver,
+                    title = "ElevenLabs API Keys",
+                    subtitle = "Manage your ElevenLabs API keys for TTS",
+                    onClick = onNavigateToElevenLabsApiKeys
                 )
             }
         }
