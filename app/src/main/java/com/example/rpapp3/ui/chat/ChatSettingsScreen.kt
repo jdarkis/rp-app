@@ -78,6 +78,7 @@ fun ChatSettingsScreen(
     // TTS Settings
     val ttsEnabled by chatSettingsManager.ttsEnabled.collectAsState(initial = false)
     val autoTtsEnabled by chatSettingsManager.autoTtsEnabled.collectAsState(initial = false)
+    val ttsAudioTagsEnabled by chatSettingsManager.ttsAudioTagsEnabled.collectAsState(initial = false)
     val narratorVoiceId by chatSettingsManager.narratorVoiceId.collectAsState(initial = "")
     val ttsModelId by chatSettingsManager.ttsModelId.collectAsState(initial = ChatSettingsManager.DEFAULT_TTS_MODEL_ID)
     
@@ -424,6 +425,14 @@ fun ChatSettingsScreen(
                             description = "Automatically speak AI responses as they appear",
                             checked = autoTtsEnabled,
                             onCheckedChange = { scope.launch { chatSettingsManager.setAutoTtsEnabled(it) } }
+                        )
+                        
+                        // Audio Tags Toggle
+                        SettingsToggle(
+                            title = "Enable Audio Tags",
+                            description = "AI will include performance directions like [whispers], [laughs] for realistic speech",
+                            checked = ttsAudioTagsEnabled,
+                            onCheckedChange = { scope.launch { chatSettingsManager.setTtsAudioTagsEnabled(it) } }
                         )
                         
                         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))

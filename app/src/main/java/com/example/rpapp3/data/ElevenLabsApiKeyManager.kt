@@ -23,7 +23,15 @@ class ElevenLabsApiKeyManager(private val context: Context) {
         // Default API keys
         private val DEFAULT_API_KEYS = listOf(
             "sk_b8012c97f04c7b55e11db450f18e1679784ec9e621c592dd",
-            "sk_d1c7496e62f9befa199cfb2a8fbb34b25eb7c4703dd8fe0c"
+            "sk_d1c7496e62f9befa199cfb2a8fbb34b25eb7c4703dd8fe0c",
+            "sk_8452724c390214d6f6f3a2d7a15d475d7a88b9f102a83aa3",
+            "sk_e5a4c92c5696c66a520d33b58b52ff779e28ee6bf9691bb5",
+            "sk_07f70f96f143b3afa288117c8c2c4616cf7324437712f856",
+            "sk_ee74c711fb1815729f42af9fb2e4e9e2e0234879f02daca6",
+            "sk_86cea6633ec80a0c9752c82789d8c38f97cf07ab578326ea",
+            "sk_e5946aba965167bf69b71155f08639210693d2f5631b9ccc",
+            "sk_37a5206a40da6d4ac941a1989960d77d26135a2f0e8dc78d",
+            "sk_d018a069b43756f3772383fe4f81e3f1c89fd085a5fd47a2"
         )
         
         @Volatile

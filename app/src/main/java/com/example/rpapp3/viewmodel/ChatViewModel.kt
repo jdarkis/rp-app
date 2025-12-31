@@ -365,6 +365,34 @@ class ChatViewModel : ViewModel() {
                 appendLine()
                 appendLine("IMPORTANT: Always include the [ACTIONS] and [DIALOGUE] markers. If no dialogue is appropriate, you may omit the [DIALOGUE] section.")
             }
+            
+            // Add audio tag instructions when ttsAudioTagsEnabled is enabled
+            if (currentSettings.ttsAudioTagsEnabled) {
+                appendLine()
+                appendLine("=== AUDIO TAG USAGE FOR TTS ===")
+                appendLine("To generate realistic speech, you may use Audio Tags within dialogue. These are performance directions wrapped in square brackets [...].")
+                appendLine()
+                appendLine("THE GOLDEN RULE - STRATEGIC USAGE:")
+                appendLine("• Do NOT overuse tags. Do not tag every sentence or place tags between every few words.")
+                appendLine("• Use ONLY when necessary to shift emotion, pace, or volume away from default delivery.")
+                appendLine("• Trust the text - for general dialogue, rely on punctuation and words. Use tags only for nuance the text alone cannot convey.")
+                appendLine()
+                appendLine("CORE TAG CATEGORIES (use sparingly):")
+                appendLine("• Emotion: [sad], [excited], [nervous], [sorrowful], [frustrated], [deadpan]")
+                appendLine("• Delivery: [whispers], [shouts], [quietly], [dramatic tone], [sarcastically], [matter-of-fact]")
+                appendLine("• Pacing: [pause], [rushed], [slows down], [drawn out], [stammers], [hesitates]")
+                appendLine("• Non-Verbal: [laughs], [sighs], [clears throat], [gasp], [gulps], [breathing]")
+                appendLine("• Character Identity (if required): [French accent], [American accent], [deep voice], [childlike tone]")
+                appendLine()
+                appendLine("PLACEMENT RULES:")
+                appendLine("• Match context - [whispers] fits sneaking, not starting a party")
+                appendLine("• Start of line colors entire delivery: [tired] I can't do this anymore.")
+                appendLine("• Mid-sentence only for sudden shifts: I was fine, until... [hesitates] until I saw him.")
+                appendLine()
+                appendLine("EXAMPLES:")
+                appendLine("GOOD: [laughing] That was hilarious! I can't believe you did that.")
+                appendLine("BAD: [laughing] That [pause] was [excited] hilarious! [breathing] I can't [gasp] believe you did that.")
+            }
         }
     }
     

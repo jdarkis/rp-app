@@ -76,6 +76,7 @@ class ChatSettingsManager private constructor(private val context: Context) {
     // TTS Settings Keys
     private val TTS_ENABLED_KEY = booleanPreferencesKey("tts_enabled")
     private val AUTO_TTS_ENABLED_KEY = booleanPreferencesKey("auto_tts_enabled")
+    private val TTS_AUDIO_TAGS_ENABLED_KEY = booleanPreferencesKey("tts_audio_tags_enabled")
     private val NARRATOR_VOICE_ID_KEY = stringPreferencesKey("narrator_voice_id")
     private val TTS_MODEL_ID_KEY = stringPreferencesKey("tts_model_id")
 
@@ -208,6 +209,11 @@ class ChatSettingsManager private constructor(private val context: Context) {
     val autoTtsEnabled: Flow<Boolean> = context.chatSettingsDataStore.data
         .map { preferences ->
             preferences[AUTO_TTS_ENABLED_KEY] ?: false // Default OFF
+        }
+
+    val ttsAudioTagsEnabled: Flow<Boolean> = context.chatSettingsDataStore.data
+        .map { preferences ->
+            preferences[TTS_AUDIO_TAGS_ENABLED_KEY] ?: false // Default OFF
         }
 
     val narratorVoiceId: Flow<String> = context.chatSettingsDataStore.data
@@ -350,6 +356,12 @@ class ChatSettingsManager private constructor(private val context: Context) {
         }
     }
 
+    suspend fun setTtsAudioTagsEnabled(enabled: Boolean) {
+        context.chatSettingsDataStore.edit { preferences ->
+            preferences[TTS_AUDIO_TAGS_ENABLED_KEY] = enabled
+        }
+    }
+
     /**
      * Restore all settings to their default values
      */
@@ -375,6 +387,7 @@ class ChatSettingsManager private constructor(private val context: Context) {
             // TTS defaults
             preferences[TTS_ENABLED_KEY] = false
             preferences[AUTO_TTS_ENABLED_KEY] = false
+            preferences[TTS_AUDIO_TAGS_ENABLED_KEY] = false
             preferences[NARRATOR_VOICE_ID_KEY] = DEFAULT_NARRATOR_VOICE_ID
             preferences[TTS_MODEL_ID_KEY] = DEFAULT_TTS_MODEL_ID
         }
@@ -403,6 +416,7 @@ class ChatSettingsManager private constructor(private val context: Context) {
             // TTS
             ttsEnabled = ttsEnabled.first(),
             autoTtsEnabled = autoTtsEnabled.first(),
+            ttsAudioTagsEnabled = ttsAudioTagsEnabled.first(),
             narratorVoiceId = narratorVoiceId.first(),
             ttsModelId = ttsModelId.first()
         )
@@ -430,6 +444,7 @@ data class ChatSettings(
     // TTS Settings
     val ttsEnabled: Boolean = false,
     val autoTtsEnabled: Boolean = false,
+    val ttsAudioTagsEnabled: Boolean = false,
     val narratorVoiceId: String = ChatSettingsManager.DEFAULT_NARRATOR_VOICE_ID,
     val ttsModelId: String = ChatSettingsManager.DEFAULT_TTS_MODEL_ID
 )

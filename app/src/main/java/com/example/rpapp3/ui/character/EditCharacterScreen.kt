@@ -67,7 +67,7 @@ fun EditCharacterScreen(
     
     val voices by viewModel.voices.collectAsState()
     val voicesLoading by viewModel.voicesLoading.collectAsState()
-    val ttsManager = viewModel.ttsManager
+    val ttsManager by viewModel.ttsManager.collectAsState()
     
     val snackbarHostState = remember { SnackbarHostState() }
     

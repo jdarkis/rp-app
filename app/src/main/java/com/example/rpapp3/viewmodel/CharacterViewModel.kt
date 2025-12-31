@@ -24,8 +24,8 @@ class CharacterViewModel : ViewModel() {
     private val mediaStorageService = MediaStorageService()
     
     private var elevenLabsService: ElevenLabsService? = null
-    private var _ttsManager: TTSManager? = null
-    val ttsManager: TTSManager? get() = _ttsManager
+    private val _ttsManager = MutableStateFlow<TTSManager?>(null)
+    val ttsManager: StateFlow<TTSManager?> = _ttsManager
     
     private val _characters = MutableStateFlow<List<Character>>(emptyList())
     val characters: StateFlow<List<Character>> = _characters
@@ -51,7 +51,7 @@ class CharacterViewModel : ViewModel() {
     fun initializeWithContext(context: Context) {
         if (elevenLabsService == null) {
             elevenLabsService = ElevenLabsService.getInstance(context)
-            _ttsManager = TTSManager.getInstance(context)
+            _ttsManager.value = TTSManager.getInstance(context)
             viewModelScope.launch {
                 elevenLabsService?.initialize()
             }

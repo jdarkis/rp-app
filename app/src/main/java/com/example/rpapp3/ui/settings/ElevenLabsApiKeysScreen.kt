@@ -191,7 +191,11 @@ fun ElevenLabsApiKeysScreen(
                 
                 Spacer(modifier = Modifier.height(16.dp))
                 
-                // Info card
+                // Info card with total credits
+                val totalRemainingCredits = subscriptionInfoMap.values.filterNotNull().sumOf { it.remainingCharacters }
+                val totalCreditsLimit = subscriptionInfoMap.values.filterNotNull().sumOf { it.characterLimit }
+                val numberFormat = remember { NumberFormat.getNumberInstance() }
+                
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
@@ -199,21 +203,55 @@ fun ElevenLabsApiKeysScreen(
                     ),
                     border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    Column(
+                        modifier = Modifier.padding(16.dp)
                     ) {
-                        Icon(
-                            Icons.Default.RecordVoiceOver,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = "Total keys: ${apiKeys.size} | Active: ${if (apiKeys.isNotEmpty()) currentIndex + 1 else 0}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.RecordVoiceOver,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = "Total keys: ${apiKeys.size} | Active: ${if (apiKeys.isNotEmpty()) currentIndex + 1 else 0}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
+                        // Total credits display
+                        if (isRefreshing || loadingKeys.isNotEmpty()) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Loading total credits...",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        } else if (subscriptionInfoMap.isNotEmpty()) {
+                            Text(
+                                text = "Total Credits Available",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "${numberFormat.format(totalRemainingCredits)} / ${numberFormat.format(totalCreditsLimit)} characters",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                 }
             }
