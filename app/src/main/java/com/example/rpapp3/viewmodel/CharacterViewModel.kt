@@ -102,6 +102,8 @@ class CharacterViewModel : ViewModel() {
         systemInstructions: String,
         profilePictureUri: Uri?,
         photoUris: List<Uri>,
+        nsfwPhotoUris: List<Uri>,
+        spicyNsfwPhotoUris: List<Uri>,
         videoUris: List<Uri>,
         language: String = "en",
         voiceId: String? = null,
@@ -184,25 +186,61 @@ class CharacterViewModel : ViewModel() {
                         }
                 }
                 
+                // Upload NSFW photos
+                val nsfwPhotoUrls = mutableListOf<String>()
+                val nsfwPhotoUploadErrors = mutableListOf<String>()
+                nsfwPhotoUris.forEachIndexed { index, uri ->
+                    uploadProgress = "Uploading NSFW photo ${index + 1}/${nsfwPhotoUris.size}..."
+                    Log.d("CharacterViewModel", "Attempting to upload NSFW photo from URI: $uri")
+                    mediaStorageService.uploadCharacterPhoto(context, createdCharacter.id, uri)
+                        .onSuccess { url -> 
+                            nsfwPhotoUrls.add(url)
+                            Log.d("CharacterViewModel", "Successfully uploaded NSFW photo: $url")
+                        }
+                        .onFailure { e -> 
+                            Log.e("CharacterViewModel", "Failed to upload NSFW photo: ${e.message}", e)
+                            nsfwPhotoUploadErrors.add("NSFW Photo ${index + 1}: ${e.message}")
+                        }
+                }
+                
+                // Upload Spicy NSFW photos
+                val spicyNsfwPhotoUrls = mutableListOf<String>()
+                val spicyNsfwPhotoUploadErrors = mutableListOf<String>()
+                spicyNsfwPhotoUris.forEachIndexed { index, uri ->
+                    uploadProgress = "Uploading Spicy NSFW photo ${index + 1}/${spicyNsfwPhotoUris.size}..."
+                    Log.d("CharacterViewModel", "Attempting to upload Spicy NSFW photo from URI: $uri")
+                    mediaStorageService.uploadCharacterPhoto(context, createdCharacter.id, uri)
+                        .onSuccess { url -> 
+                            spicyNsfwPhotoUrls.add(url)
+                            Log.d("CharacterViewModel", "Successfully uploaded Spicy NSFW photo: $url")
+                        }
+                        .onFailure { e -> 
+                            Log.e("CharacterViewModel", "Failed to upload Spicy NSFW photo: ${e.message}", e)
+                            spicyNsfwPhotoUploadErrors.add("Spicy NSFW Photo ${index + 1}: ${e.message}")
+                        }
+                }
+                
                 // Log summary
-                Log.d("CharacterViewModel", "Upload summary: ${photoUrls.size}/${photoUris.size} photos, ${videoUrls.size}/${videoUris.size} videos, profile: ${profilePictureUrl != null}")
+                Log.d("CharacterViewModel", "Upload summary: ${photoUrls.size}/${photoUris.size} photos, ${nsfwPhotoUrls.size}/${nsfwPhotoUris.size} NSFW photos, ${spicyNsfwPhotoUrls.size}/${spicyNsfwPhotoUris.size} Spicy NSFW photos, ${videoUrls.size}/${videoUris.size} videos, profile: ${profilePictureUrl != null}")
                 
                 // Update character with media URLs if any were uploaded
-                if (profilePictureUrl != null || photoUrls.isNotEmpty() || videoUrls.isNotEmpty()) {
+                if (profilePictureUrl != null || photoUrls.isNotEmpty() || nsfwPhotoUrls.isNotEmpty() || spicyNsfwPhotoUrls.isNotEmpty() || videoUrls.isNotEmpty()) {
                     val updatedCharacter = createdCharacter.copy(
                         profilePictureUrl = profilePictureUrl,
                         photoUrls = photoUrls,
+                        nsfwPhotoUrls = nsfwPhotoUrls,
+                        spicyNsfwPhotoUrls = spicyNsfwPhotoUrls,
                         videoUrls = videoUrls
                     )
                     characterRepository.updateCharacter(updatedCharacter).getOrThrow()
-                    Log.d("CharacterViewModel", "Successfully saved character with profile picture and ${photoUrls.size} photos and ${videoUrls.size} videos")
+                    Log.d("CharacterViewModel", "Successfully saved character with profile picture and ${photoUrls.size} photos, ${nsfwPhotoUrls.size} NSFW photos, ${spicyNsfwPhotoUrls.size} Spicy NSFW photos and ${videoUrls.size} videos")
                 }
                 
                 isLoading = false
                 uploadProgress = null
                 
                 // Show warning if some uploads failed
-                val allErrors = photoUploadErrors + videoUploadErrors
+                val allErrors = photoUploadErrors + nsfwPhotoUploadErrors + spicyNsfwPhotoUploadErrors + videoUploadErrors
                 if (allErrors.isNotEmpty()) {
                     error = "Some media failed to upload:\n${allErrors.joinToString("\n")}"
                 }
@@ -222,6 +260,8 @@ class CharacterViewModel : ViewModel() {
         character: Character,
         newProfilePictureUri: Uri?,
         newPhotoUris: List<Uri>,
+        newNsfwPhotoUris: List<Uri>,
+        newSpicyNsfwPhotoUris: List<Uri>,
         newVideoUris: List<Uri>,
         onSuccess: () -> Unit,
         onError: (String) -> Unit
@@ -268,9 +308,29 @@ class CharacterViewModel : ViewModel() {
                         .onFailure { e -> Log.e("CharacterViewModel", "Failed to upload media: ${e.message}", e) }
                 }
                 
+                // Upload new NSFW photos
+                val newNsfwPhotoUrls = mutableListOf<String>()
+                newNsfwPhotoUris.forEachIndexed { index, uri ->
+                    uploadProgress = "Uploading NSFW photo ${index + 1}/${newNsfwPhotoUris.size}..."
+                    mediaStorageService.uploadCharacterPhoto(context, character.id, uri)
+                        .onSuccess { url -> newNsfwPhotoUrls.add(url) }
+                        .onFailure { e -> Log.e("CharacterViewModel", "Failed to upload NSFW photo: ${e.message}", e) }
+                }
+                
+                // Upload new Spicy NSFW photos
+                val newSpicyNsfwPhotoUrls = mutableListOf<String>()
+                newSpicyNsfwPhotoUris.forEachIndexed { index, uri ->
+                    uploadProgress = "Uploading Spicy NSFW photo ${index + 1}/${newSpicyNsfwPhotoUris.size}..."
+                    mediaStorageService.uploadCharacterPhoto(context, character.id, uri)
+                        .onSuccess { url -> newSpicyNsfwPhotoUrls.add(url) }
+                        .onFailure { e -> Log.e("CharacterViewModel", "Failed to upload Spicy NSFW photo: ${e.message}", e) }
+                }
+                
                 // Add new URLs to existing ones
                 updatedCharacter = updatedCharacter.copy(
                     photoUrls = character.photoUrls + newPhotoUrls,
+                    nsfwPhotoUrls = character.nsfwPhotoUrls + newNsfwPhotoUrls,
+                    spicyNsfwPhotoUrls = character.spicyNsfwPhotoUrls + newSpicyNsfwPhotoUrls,
                     videoUrls = character.videoUrls + newVideoUrls
                 )
                 
@@ -347,6 +407,30 @@ class CharacterViewModel : ViewModel() {
             mediaStorageService.deleteMedia(videoUrl)
             val updatedCharacter = character.copy(
                 videoUrls = character.videoUrls.filter { it != videoUrl }
+            )
+            characterRepository.updateCharacter(updatedCharacter)
+            _currentCharacter.value = updatedCharacter
+            onComplete()
+        }
+    }
+    
+    fun removeNsfwPhoto(character: Character, photoUrl: String, onComplete: () -> Unit) {
+        viewModelScope.launch {
+            mediaStorageService.deleteMedia(photoUrl)
+            val updatedCharacter = character.copy(
+                nsfwPhotoUrls = character.nsfwPhotoUrls.filter { it != photoUrl }
+            )
+            characterRepository.updateCharacter(updatedCharacter)
+            _currentCharacter.value = updatedCharacter
+            onComplete()
+        }
+    }
+    
+    fun removeSpicyNsfwPhoto(character: Character, photoUrl: String, onComplete: () -> Unit) {
+        viewModelScope.launch {
+            mediaStorageService.deleteMedia(photoUrl)
+            val updatedCharacter = character.copy(
+                spicyNsfwPhotoUrls = character.spicyNsfwPhotoUrls.filter { it != photoUrl }
             )
             characterRepository.updateCharacter(updatedCharacter)
             _currentCharacter.value = updatedCharacter

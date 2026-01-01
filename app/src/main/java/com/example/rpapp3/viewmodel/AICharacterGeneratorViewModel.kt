@@ -355,6 +355,8 @@ class AICharacterGeneratorViewModel : ViewModel() {
                 systemInstructions = character.systemInstructions,
                 profilePictureUri = profilePictureUri,
                 photoUris = photoUris,
+                nsfwPhotoUris = emptyList(),
+                spicyNsfwPhotoUris = emptyList(),
                 videoUris = videoUris,
                 onSuccess = {
                     // Remove the saved character from the list

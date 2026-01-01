@@ -9,6 +9,9 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -218,20 +221,113 @@ fun CharacterDetailScreen(
                             text = "Photos (${char.photoUrls.size})",
                             style = MaterialTheme.typography.titleMedium
                         )
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 400.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                            )
                         ) {
-                            items(char.photoUrls.size) { index ->
-                                val url = char.photoUrls[index]
-                                AsyncImage(
-                                    model = url,
-                                    contentDescription = null,
-                                    modifier = Modifier
-                                        .size(150.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .clickable { expandedGalleryState = GalleryState(char.photoUrls, index) },
-                                    contentScale = ContentScale.Crop
-                                )
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(3),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                items(char.photoUrls.size) { index ->
+                                    val url = char.photoUrls[index]
+                                    AsyncImage(
+                                        model = url,
+                                        contentDescription = null,
+                                        modifier = Modifier
+                                            .aspectRatio(1f)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable { expandedGalleryState = GalleryState(char.photoUrls, index) },
+                                        contentScale = ContentScale.Crop
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    
+                    // NSFW Photos gallery
+                    if (char.nsfwPhotoUrls.isNotEmpty()) {
+                        Text(
+                            text = "NSFW Photos (${char.nsfwPhotoUrls.size})",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 400.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                            )
+                        ) {
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(3),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                items(char.nsfwPhotoUrls.size) { index ->
+                                    val url = char.nsfwPhotoUrls[index]
+                                    AsyncImage(
+                                        model = url,
+                                        contentDescription = null,
+                                        modifier = Modifier
+                                            .aspectRatio(1f)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable { expandedGalleryState = GalleryState(char.nsfwPhotoUrls, index) },
+                                        contentScale = ContentScale.Crop
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Spicy NSFW Photos gallery
+                    if (char.spicyNsfwPhotoUrls.isNotEmpty()) {
+                        Text(
+                            text = "Spicy NSFW Photos (${char.spicyNsfwPhotoUrls.size})",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 400.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                            )
+                        ) {
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(3),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                items(char.spicyNsfwPhotoUrls.size) { index ->
+                                    val url = char.spicyNsfwPhotoUrls[index]
+                                    AsyncImage(
+                                        model = url,
+                                        contentDescription = null,
+                                        modifier = Modifier
+                                            .aspectRatio(1f)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable { expandedGalleryState = GalleryState(char.spicyNsfwPhotoUrls, index) },
+                                        contentScale = ContentScale.Crop
+                                    )
+                                }
                             }
                         }
                     }

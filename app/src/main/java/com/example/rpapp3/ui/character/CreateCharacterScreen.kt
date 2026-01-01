@@ -53,6 +53,8 @@ fun CreateCharacterScreen(
     var systemInstructions by remember { mutableStateOf("") }
     var profilePictureUri by remember { mutableStateOf<Uri?>(null) }
     var photoUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var nsfwPhotoUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var spicyNsfwPhotoUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var videoUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     
@@ -122,6 +124,40 @@ fun CreateCharacterScreen(
             }
         }
         videoUris = videoUris + uris
+    }
+    
+    // NSFW Photo picker
+    val nsfwPhotoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickMultipleVisualMedia()
+    ) { uris ->
+        uris.forEach { uri ->
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (e: SecurityException) {
+                // Some URIs don't support persistable permissions, which is fine
+            }
+        }
+        nsfwPhotoUris = nsfwPhotoUris + uris
+    }
+    
+    // Spicy NSFW Photo picker
+    val spicyNsfwPhotoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickMultipleVisualMedia()
+    ) { uris ->
+        uris.forEach { uri ->
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (e: SecurityException) {
+                // Some URIs don't support persistable permissions, which is fine
+            }
+        }
+        spicyNsfwPhotoUris = spicyNsfwPhotoUris + uris
     }
     
     LaunchedEffect(errorMessage) {
@@ -372,6 +408,46 @@ fun CreateCharacterScreen(
                 enabled = !viewModel.isLoading
             )
             
+            // NSFW Photos section
+            Text(
+                text = "NSFW Photos",
+                style = MaterialTheme.typography.titleMedium
+            )
+            
+            MediaPreviewRow(
+                uris = nsfwPhotoUris,
+                onAddClick = {
+                    nsfwPhotoPickerLauncher.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
+                },
+                onRemoveClick = { uri ->
+                    nsfwPhotoUris = nsfwPhotoUris.filter { it != uri }
+                },
+                isVideo = false,
+                enabled = !viewModel.isLoading
+            )
+            
+            // Spicy NSFW Photos section
+            Text(
+                text = "Spicy NSFW Photos",
+                style = MaterialTheme.typography.titleMedium
+            )
+            
+            MediaPreviewRow(
+                uris = spicyNsfwPhotoUris,
+                onAddClick = {
+                    spicyNsfwPhotoPickerLauncher.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
+                },
+                onRemoveClick = { uri ->
+                    spicyNsfwPhotoUris = spicyNsfwPhotoUris.filter { it != uri }
+                },
+                isVideo = false,
+                enabled = !viewModel.isLoading
+            )
+            
             // Upload progress
             viewModel.uploadProgress?.let { progress ->
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
@@ -396,6 +472,8 @@ fun CreateCharacterScreen(
                         systemInstructions = systemInstructions,
                         profilePictureUri = profilePictureUri,
                         photoUris = photoUris,
+                        nsfwPhotoUris = nsfwPhotoUris,
+                        spicyNsfwPhotoUris = spicyNsfwPhotoUris,
                         videoUris = videoUris,
                         language = language,
                         voiceId = voiceId,

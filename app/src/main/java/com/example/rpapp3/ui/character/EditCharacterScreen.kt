@@ -55,6 +55,8 @@ fun EditCharacterScreen(
     var newProfilePictureUri by remember { mutableStateOf<Uri?>(null) }
     var currentProfilePictureUrl by remember { mutableStateOf<String?>(null) }
     var newPhotoUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var newNsfwPhotoUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var newSpicyNsfwPhotoUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var newVideoUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showSelectFromPhotosDialog by remember { mutableStateOf(false) }
@@ -127,6 +129,40 @@ fun EditCharacterScreen(
             }
         }
         newVideoUris = newVideoUris + uris
+    }
+    
+    // NSFW Photo picker
+    val nsfwPhotoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickMultipleVisualMedia()
+    ) { uris ->
+        uris.forEach { uri ->
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (e: SecurityException) {
+                // Some URIs don't support persistable permissions, which is fine
+            }
+        }
+        newNsfwPhotoUris = newNsfwPhotoUris + uris
+    }
+    
+    // Spicy NSFW Photo picker
+    val spicyNsfwPhotoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickMultipleVisualMedia()
+    ) { uris ->
+        uris.forEach { uri ->
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (e: SecurityException) {
+                // Some URIs don't support persistable permissions, which is fine
+            }
+        }
+        newSpicyNsfwPhotoUris = newSpicyNsfwPhotoUris + uris
     }
     
     // Load character data
@@ -447,6 +483,80 @@ fun EditCharacterScreen(
                 enabled = !viewModel.isLoading
             )
             
+            // Existing NSFW photos
+            character?.let { char ->
+                if (char.nsfwPhotoUrls.isNotEmpty()) {
+                    Text(
+                        text = "Current NSFW Photos",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    ExistingMediaRow(
+                        urls = char.nsfwPhotoUrls,
+                        isVideo = false,
+                        onRemoveClick = { url ->
+                            viewModel.removeNsfwPhoto(char, url) {}
+                        },
+                        enabled = !viewModel.isLoading
+                    )
+                }
+            }
+            
+            // Add new NSFW photos
+            Text(
+                text = "Add New NSFW Photos",
+                style = MaterialTheme.typography.titleMedium
+            )
+            MediaPreviewRow(
+                uris = newNsfwPhotoUris,
+                onAddClick = {
+                    nsfwPhotoPickerLauncher.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
+                },
+                onRemoveClick = { uri ->
+                    newNsfwPhotoUris = newNsfwPhotoUris.filter { it != uri }
+                },
+                isVideo = false,
+                enabled = !viewModel.isLoading
+            )
+            
+            // Existing Spicy NSFW photos
+            character?.let { char ->
+                if (char.spicyNsfwPhotoUrls.isNotEmpty()) {
+                    Text(
+                        text = "Current Spicy NSFW Photos",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    ExistingMediaRow(
+                        urls = char.spicyNsfwPhotoUrls,
+                        isVideo = false,
+                        onRemoveClick = { url ->
+                            viewModel.removeSpicyNsfwPhoto(char, url) {}
+                        },
+                        enabled = !viewModel.isLoading
+                    )
+                }
+            }
+            
+            // Add new Spicy NSFW photos
+            Text(
+                text = "Add New Spicy NSFW Photos",
+                style = MaterialTheme.typography.titleMedium
+            )
+            MediaPreviewRow(
+                uris = newSpicyNsfwPhotoUris,
+                onAddClick = {
+                    spicyNsfwPhotoPickerLauncher.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
+                },
+                onRemoveClick = { uri ->
+                    newSpicyNsfwPhotoUris = newSpicyNsfwPhotoUris.filter { it != uri }
+                },
+                isVideo = false,
+                enabled = !viewModel.isLoading
+            )
+            
             // Upload progress
             viewModel.uploadProgress?.let { progress ->
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
@@ -477,6 +587,8 @@ fun EditCharacterScreen(
                             ),
                             newProfilePictureUri = newProfilePictureUri,
                             newPhotoUris = newPhotoUris,
+                            newNsfwPhotoUris = newNsfwPhotoUris,
+                            newSpicyNsfwPhotoUris = newSpicyNsfwPhotoUris,
                             newVideoUris = newVideoUris,
                             onSuccess = onCharacterUpdated,
                             onError = { errorMessage = it }
