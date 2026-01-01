@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material3.*
@@ -24,7 +25,8 @@ fun SettingsScreen(
     onNavigateBack: () -> Unit,
     onNavigateToApiKeys: () -> Unit,
     onNavigateToElevenLabsApiKeys: () -> Unit,
-    onNavigateToAppearance: () -> Unit
+    onNavigateToAppearance: () -> Unit,
+    onNavigateToUnlockPrompt: () -> Unit
 ) {
     Scaffold(
         topBar = {
@@ -72,6 +74,13 @@ fun SettingsScreen(
                     title = "Appearance",
                     subtitle = "Theme and visual customization",
                     onClick = onNavigateToAppearance
+                )
+                
+                SettingsCategoryItem(
+                    icon = Icons.Default.LockOpen,
+                    title = "Unlock Prompt",
+                    subtitle = "Custom prompt added to chat system instructions",
+                    onClick = onNavigateToUnlockPrompt
                 )
                 
                 SettingsCategoryItem(

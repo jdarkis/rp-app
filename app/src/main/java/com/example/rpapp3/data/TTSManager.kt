@@ -19,6 +19,7 @@ enum class TTSPlaybackState {
     LOADING,
     PLAYING,
     PAUSED,
+    COMPLETED,  // Playback finished naturally, controls should remain visible
     ERROR
 }
 
@@ -62,8 +63,8 @@ class TTSManager(private val context: Context) {
                             }
                         }
                         Player.STATE_ENDED -> {
-                            _playbackState.value = TTSPlaybackState.IDLE
-                            _currentPlayingId.value = null
+                            _playbackState.value = TTSPlaybackState.COMPLETED
+                            // Keep currentPlayingId so user can replay
                         }
                     }
                 }
@@ -152,6 +153,16 @@ class TTSManager(private val context: Context) {
      */
     fun resume() {
         exoPlayer?.play()
+    }
+    
+    /**
+     * Replay audio from the beginning (for completed playback)
+     */
+    fun replay() {
+        exoPlayer?.let { player ->
+            player.seekTo(0)
+            player.play()
+        }
     }
     
     /**

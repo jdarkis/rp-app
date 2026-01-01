@@ -18,6 +18,7 @@ import com.example.rpapp3.ui.settings.ApiKeysScreen
 import com.example.rpapp3.ui.settings.AppearanceScreen
 import com.example.rpapp3.ui.settings.ElevenLabsApiKeysScreen
 import com.example.rpapp3.ui.settings.SettingsScreen
+import com.example.rpapp3.ui.settings.UnlockPromptScreen
 import com.example.rpapp3.ui.world.CreateWorldScreen
 import com.example.rpapp3.ui.world.EditWorldScreen
 import com.example.rpapp3.ui.world.WorldDetailScreen
@@ -245,7 +246,8 @@ fun AppNavigation(navController: NavHostController) {
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToApiKeys = { navController.navigate(Routes.SettingsApiKeys.route) },
                 onNavigateToElevenLabsApiKeys = { navController.navigate(Routes.SettingsElevenLabsApiKeys.route) },
-                onNavigateToAppearance = { navController.navigate(Routes.SettingsAppearance.route) }
+                onNavigateToAppearance = { navController.navigate(Routes.SettingsAppearance.route) },
+                onNavigateToUnlockPrompt = { navController.navigate(Routes.SettingsUnlockPrompt.route) }
             )
         }
         
@@ -263,6 +265,12 @@ fun AppNavigation(navController: NavHostController) {
         
         composable(Routes.SettingsAppearance.route) {
             AppearanceScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+        
+        composable(Routes.SettingsUnlockPrompt.route) {
+            UnlockPromptScreen(
                 onNavigateBack = { navController.popBackStack() }
             )
         }

@@ -87,6 +87,12 @@ class ChatSettingsManager private constructor(private val context: Context) {
     private val TTS_AUDIO_TAGS_ENABLED_KEY = booleanPreferencesKey("tts_audio_tags_enabled")
     private val NARRATOR_VOICE_ID_KEY = stringPreferencesKey("narrator_voice_id")
     private val TTS_MODEL_ID_KEY = stringPreferencesKey("tts_model_id")
+    
+    // Unlock Prompt Setting
+    private val UNLOCK_PROMPT_ENABLED_KEY = booleanPreferencesKey("unlock_prompt_enabled")
+    
+    // Narrator Language Setting
+    private val NARRATOR_LANGUAGE_KEY = stringPreferencesKey("narrator_language")
 
     // Message Display Settings
     val filterMode: Flow<MessageFilterMode> = context.chatSettingsDataStore.data
@@ -245,6 +251,18 @@ class ChatSettingsManager private constructor(private val context: Context) {
             preferences[TTS_MODEL_ID_KEY] ?: DEFAULT_TTS_MODEL_ID
         }
 
+    // Unlock Prompt Setting
+    val unlockPromptEnabled: Flow<Boolean> = context.chatSettingsDataStore.data
+        .map { preferences ->
+            preferences[UNLOCK_PROMPT_ENABLED_KEY] ?: false // Default OFF
+        }
+
+    // Narrator Language Setting (default English)
+    val narratorLanguage: Flow<String> = context.chatSettingsDataStore.data
+        .map { preferences ->
+            preferences[NARRATOR_LANGUAGE_KEY] ?: "en" // Default English
+        }
+
     // Setters for Message Display
     suspend fun setFilterMode(mode: MessageFilterMode) {
         context.chatSettingsDataStore.edit { preferences ->
@@ -387,6 +405,18 @@ class ChatSettingsManager private constructor(private val context: Context) {
         }
     }
 
+    suspend fun setUnlockPromptEnabled(enabled: Boolean) {
+        context.chatSettingsDataStore.edit { preferences ->
+            preferences[UNLOCK_PROMPT_ENABLED_KEY] = enabled
+        }
+    }
+
+    suspend fun setNarratorLanguage(language: String) {
+        context.chatSettingsDataStore.edit { preferences ->
+            preferences[NARRATOR_LANGUAGE_KEY] = language
+        }
+    }
+
     /**
      * Restore all settings to their default values
      */
@@ -416,6 +446,10 @@ class ChatSettingsManager private constructor(private val context: Context) {
             preferences[TTS_AUDIO_TAGS_ENABLED_KEY] = false
             preferences[NARRATOR_VOICE_ID_KEY] = DEFAULT_NARRATOR_VOICE_ID
             preferences[TTS_MODEL_ID_KEY] = DEFAULT_TTS_MODEL_ID
+            // Unlock Prompt default
+            preferences[UNLOCK_PROMPT_ENABLED_KEY] = false
+            // Narrator Language default
+            preferences[NARRATOR_LANGUAGE_KEY] = "en"
         }
     }
 
@@ -445,7 +479,9 @@ class ChatSettingsManager private constructor(private val context: Context) {
             autoTtsEnabled = autoTtsEnabled.first(),
             ttsAudioTagsEnabled = ttsAudioTagsEnabled.first(),
             narratorVoiceId = narratorVoiceId.first(),
-            ttsModelId = ttsModelId.first()
+            ttsModelId = ttsModelId.first(),
+            unlockPromptEnabled = unlockPromptEnabled.first(),
+            narratorLanguage = narratorLanguage.first()
         )
     }
 }
@@ -474,5 +510,9 @@ data class ChatSettings(
     val autoTtsEnabled: Boolean = false,
     val ttsAudioTagsEnabled: Boolean = false,
     val narratorVoiceId: String = ChatSettingsManager.DEFAULT_NARRATOR_VOICE_ID,
-    val ttsModelId: String = ChatSettingsManager.DEFAULT_TTS_MODEL_ID
+    val ttsModelId: String = ChatSettingsManager.DEFAULT_TTS_MODEL_ID,
+    // Unlock Prompt
+    val unlockPromptEnabled: Boolean = false,
+    // Narrator Language (default English)
+    val narratorLanguage: String = "en"
 )

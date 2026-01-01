@@ -23,6 +23,7 @@ import com.example.rpapp3.data.model.ElevenLabsTTSModels
 import com.example.rpapp3.data.model.World
 import com.example.rpapp3.data.repository.CharacterRepository
 import com.example.rpapp3.data.repository.ChatRepository
+import com.example.rpapp3.data.repository.SettingsRepository
 import com.example.rpapp3.data.repository.WorldRepository
 import com.google.ai.client.generativeai.GenerativeModel
 import com.google.ai.client.generativeai.type.BlockThreshold
@@ -54,6 +55,7 @@ class ChatViewModel : ViewModel() {
     private val worldRepository = WorldRepository()
     private val characterRepository = CharacterRepository()
     private val chatRepository = ChatRepository()
+    private val settingsRepository = SettingsRepository()
     
     // State
     private val _messages = mutableStateListOf<ChatMessage>()
@@ -225,8 +227,15 @@ class ChatViewModel : ViewModel() {
             return
         }
         
+        // Load unlock prompt if enabled
+        val unlockPrompt = if (currentSettings.unlockPromptEnabled) {
+            settingsRepository.getUnlockPromptOnce()
+        } else {
+            ""
+        }
+        
         // Build system instructions from world and characters
-        val systemInstructions = buildSystemInstructions(world, characters)
+        val systemInstructions = buildSystemInstructions(world, characters, unlockPrompt)
         _systemPrompt.value = systemInstructions
         
         // Build safety settings from user preferences
@@ -284,8 +293,15 @@ class ChatViewModel : ViewModel() {
         )
     }
     
-    private fun buildSystemInstructions(world: World?, characters: List<Character>): String {
+    private fun buildSystemInstructions(world: World?, characters: List<Character>, unlockPrompt: String = ""): String {
         return buildString {
+            // Prepend unlock prompt at the very top if enabled
+            if (unlockPrompt.isNotBlank()) {
+                appendLine("=== UNLOCK PROMPT ===")
+                appendLine(unlockPrompt)
+                appendLine()
+            }
+            
             appendLine("You are a roleplay AI assistant. You will be playing one or more characters in a collaborative story.")
             appendLine()
             
@@ -353,6 +369,34 @@ class ChatViewModel : ViewModel() {
             appendLine("5. If multiple characters are present, you may respond as any or all of them as appropriate")
             appendLine("6. Write in a narrative style, describing actions, dialogue, and scenes naturally")
             
+            // Add narrator language instructions
+            appendLine()
+            appendLine("=== NARRATOR LANGUAGE ===")
+            val narratorLanguageName = when (currentSettings.narratorLanguage) {
+                "en" -> "English"
+                "ru" -> "Russian"
+                "es" -> "Spanish"
+                "fr" -> "French"
+                "de" -> "German"
+                "it" -> "Italian"
+                "pt" -> "Portuguese"
+                "zh" -> "Chinese"
+                "ja" -> "Japanese"
+                "ko" -> "Korean"
+                "ar" -> "Arabic"
+                "hi" -> "Hindi"
+                "pl" -> "Polish"
+                "uk" -> "Ukrainian"
+                "lt" -> "Lithuanian"
+                "tr" -> "Turkish"
+                "nl" -> "Dutch"
+                "sv" -> "Swedish"
+                else -> currentSettings.narratorLanguage
+            }
+            appendLine("Write all NARRATION (descriptions, actions, scene-setting, internal thoughts exposition) in $narratorLanguageName.")
+            appendLine("IMPORTANT: Character DIALOGUE should still be in each character's specified language, NOT the narrator language.")
+            appendLine("Only the narrative prose between dialogue should be in $narratorLanguageName.")
+            
             // Add response length instructions
             appendLine()
             appendLine("=== RESPONSE LENGTH ===")
@@ -405,9 +449,11 @@ class ChatViewModel : ViewModel() {
                 appendLine()
                 appendLine("Format your choices EXACTLY like this at the END of your response:")
                 appendLine("[ACTIONS]")
-                appendLine("1. First action option")
-                appendLine("2. Second action option")
-                appendLine("3. Third action option")
+                appendLine("1. I [first action in first person]")
+                appendLine("2. I [second action in first person]")
+                appendLine("3. I [third action in first person]")
+                appendLine()
+                appendLine("IMPORTANT: Action choices MUST be written in first person perspective, starting with 'I'. For example: 'I approach the door cautiously', 'I draw my sword', 'I ask her about the artifact'.")
                 appendLine("[DIALOGUE]")
                 appendLine("a. \"First dialogue option\"")
                 appendLine("b. \"Second dialogue option\"")
@@ -444,6 +490,7 @@ class ChatViewModel : ViewModel() {
                 appendLine("• Match context - [whispers] fits sneaking, not starting a party")
                 appendLine("• Start of dialogue colors entire delivery: \"[tired] I can't do this anymore.\"")
                 appendLine("• Mid-sentence only for sudden shifts: \"I was fine, until... [hesitates] until I saw him.\"")
+                appendLine("• ALWAYS end each character's COMPLETE speech with a single [pause] tag at the very end (NOT after every sentence): \"Hello. It is so nice to see you. I can't believe that we haven't seen each other in 5 years. [pause]\"")
                 appendLine()
                 appendLine("EXAMPLES:")
                 appendLine("GOOD: \"[laughing] That was hilarious! I can't believe you did that.\"")
@@ -956,6 +1003,13 @@ class ChatViewModel : ViewModel() {
         _ttsManager?.resume()
     }
     
+    /**
+     * Replay TTS from the beginning (after playback completed)
+     */
+    fun replaySpeaking() {
+        _ttsManager?.replay()
+    }
+    
     // Job for sequential segment playback (can be cancelled)
     private var ttsSegmentJob: kotlinx.coroutines.Job? = null
     
@@ -1021,7 +1075,7 @@ class ChatViewModel : ViewModel() {
                 // Wait for playback to complete
                 try {
                     _ttsManager?.playbackState?.first { state ->
-                        state == TTSPlaybackState.IDLE || state == TTSPlaybackState.ERROR
+                        state == TTSPlaybackState.IDLE || state == TTSPlaybackState.ERROR || state == TTSPlaybackState.COMPLETED
                     }
                 } catch (e: Exception) {
                     Log.w("ChatViewModel", "Error waiting for playback: ${e.message}")
@@ -1107,7 +1161,7 @@ class ChatViewModel : ViewModel() {
             // Wait for playback to complete
             try {
                 _ttsManager?.playbackState?.first { state ->
-                    state == TTSPlaybackState.IDLE || state == TTSPlaybackState.ERROR
+                    state == TTSPlaybackState.IDLE || state == TTSPlaybackState.ERROR || state == TTSPlaybackState.COMPLETED
                 }
             } catch (e: Exception) {
                 Log.w("ChatViewModel", "Error waiting for playback: ${e.message}")

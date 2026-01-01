@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -33,6 +34,7 @@ import com.example.rpapp3.data.SafetyThreshold
 import com.example.rpapp3.data.model.ElevenLabsTTSModels
 import com.example.rpapp3.data.model.Voice
 import com.example.rpapp3.viewmodel.ChatViewModel
+import com.example.rpapp3.ui.components.SUPPORTED_LANGUAGES
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -83,6 +85,12 @@ fun ChatSettingsScreen(
     val ttsAudioTagsEnabled by chatSettingsManager.ttsAudioTagsEnabled.collectAsState(initial = false)
     val narratorVoiceId by chatSettingsManager.narratorVoiceId.collectAsState(initial = "")
     val ttsModelId by chatSettingsManager.ttsModelId.collectAsState(initial = ChatSettingsManager.DEFAULT_TTS_MODEL_ID)
+    
+    // Unlock Prompt Setting
+    val unlockPromptEnabled by chatSettingsManager.unlockPromptEnabled.collectAsState(initial = false)
+    
+    // Narrator Language Setting
+    val narratorLanguage by chatSettingsManager.narratorLanguage.collectAsState(initial = "en")
     
     // ElevenLabs Service and Voices
     val elevenLabsService = remember { ElevenLabsService.getInstance(context) }
@@ -345,6 +353,54 @@ fun ChatSettingsScreen(
                         value = responseLength,
                         onValueChange = { scope.launch { chatSettingsManager.setResponseLength(it) } }
                     )
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    // Narrator Language Selector
+                    Text(
+                        text = "Narrator Language",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "Language for narration (descriptions, actions). Dialogue uses each character's language.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    
+                    var narratorLangExpanded by remember { mutableStateOf(false) }
+                    val selectedLangLabel = SUPPORTED_LANGUAGES.find { it.first == narratorLanguage }?.second ?: "English"
+                    
+                    ExposedDropdownMenuBox(
+                        expanded = narratorLangExpanded,
+                        onExpandedChange = { narratorLangExpanded = !narratorLangExpanded },
+                        modifier = Modifier.padding(top = 8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = selectedLangLabel,
+                            onValueChange = {},
+                            readOnly = true,
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = narratorLangExpanded) },
+                            modifier = Modifier.menuAnchor().fillMaxWidth()
+                        )
+                        ExposedDropdownMenu(
+                            expanded = narratorLangExpanded,
+                            onDismissRequest = { narratorLangExpanded = false }
+                        ) {
+                            SUPPORTED_LANGUAGES.forEach { (code, name) ->
+                                DropdownMenuItem(
+                                    text = { Text(name) },
+                                    onClick = {
+                                        scope.launch { chatSettingsManager.setNarratorLanguage(code) }
+                                        narratorLangExpanded = false
+                                    },
+                                    leadingIcon = if (code == narratorLanguage) {
+                                        { Icon(Icons.Default.Check, contentDescription = null) }
+                                    } else null
+                                )
+                            }
+                        }
+                    }
                     
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                     
@@ -689,6 +745,14 @@ fun ChatSettingsScreen(
                         description = "Enable extended reasoning for better narrative planning (Gemini 3+)",
                         checked = thinkingEnabled,
                         onCheckedChange = { scope.launch { chatSettingsManager.setThinkingEnabled(it) } }
+                    )
+                    
+                    // Unlock Prompt Toggle
+                    SettingsToggle(
+                        title = "Enable Unlock Prompt",
+                        description = "Include the unlock prompt from app settings at the start of system instructions",
+                        checked = unlockPromptEnabled,
+                        onCheckedChange = { scope.launch { chatSettingsManager.setUnlockPromptEnabled(it) } }
                     )
                     
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))

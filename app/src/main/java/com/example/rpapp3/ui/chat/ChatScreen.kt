@@ -419,18 +419,39 @@ fun ChatScreen(
                 }
             }
             
-            // Floating TTS Stop Button - shows when TTS is playing or loading
+            // Floating TTS Control Bar - shows when TTS is playing, loading, paused, or completed
             val isPlayingOrLoading = playbackState?.value == TTSPlaybackState.PLAYING || 
                                      playbackState?.value == TTSPlaybackState.LOADING ||
                                      playbackState?.value == TTSPlaybackState.PAUSED
+            val isCompleted = playbackState?.value == TTSPlaybackState.COMPLETED
+            val showTTSControls = isPlayingOrLoading || isCompleted
             
-            if (isPlayingOrLoading && ttsEnabled) {
+            if (showTTSControls && ttsEnabled) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
                 ) {
+                    // Replay button (only when completed)
+                    if (isCompleted) {
+                        FilledTonalButton(
+                            onClick = { viewModel.replaySpeaking() },
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        ) {
+                            Icon(
+                                Icons.Default.Replay,
+                                contentDescription = "Replay",
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Replay")
+                        }
+                    }
+                    
                     // Pause/Resume button (only when playing or paused)
                     if (playbackState?.value == TTSPlaybackState.PLAYING || 
                         playbackState?.value == TTSPlaybackState.PAUSED) {
@@ -456,7 +477,7 @@ fun ChatScreen(
                         }
                     }
                     
-                    // Stop button
+                    // Stop/Close button
                     FilledTonalButton(
                         onClick = { viewModel.stopSpeaking() },
                         colors = ButtonDefaults.filledTonalButtonColors(
@@ -474,12 +495,12 @@ fun ChatScreen(
                             Text("Generating...")
                         } else {
                             Icon(
-                                Icons.Default.Stop,
-                                contentDescription = "Stop",
+                                if (isCompleted) Icons.Default.Close else Icons.Default.Stop,
+                                contentDescription = if (isCompleted) "Close" else "Stop",
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Stop")
+                            Text(if (isCompleted) "Close" else "Stop")
                         }
                     }
                 }
@@ -973,10 +994,15 @@ fun ChatInput(
 ) {
     var inputText by remember { mutableStateOf("") }
     
-    // Handle external text input (from choice selection)
+    // Handle external text input (from choice selection) - append to existing text
     LaunchedEffect(externalText) {
         if (externalText != null) {
-            inputText = externalText
+            inputText = if (inputText.isBlank()) {
+                externalText
+            } else {
+                // Append with space separator
+                "${inputText.trimEnd()} $externalText"
+            }
             onExternalTextConsumed?.invoke()
         }
     }
