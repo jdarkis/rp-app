@@ -26,6 +26,13 @@ enum class SafetyThreshold {
     BLOCK_LOW_AND_ABOVE  // Block low and above (strictest)
 }
 
+enum class ResponseLength {
+    SHORT,       // 1-2 paragraphs, concise responses
+    MEDIUM,      // 2-3 paragraphs, balanced responses (default)
+    LONG,        // 4-5 paragraphs, detailed responses
+    VERY_LONG    // No limit, elaborate responses
+}
+
 class ChatSettingsManager private constructor(private val context: Context) {
 
     companion object {
@@ -72,6 +79,7 @@ class ChatSettingsManager private constructor(private val context: Context) {
     private val SAFETY_DANGEROUS_CONTENT_KEY = stringPreferencesKey("safety_dangerous_content")
     private val SEPARATE_CHARACTER_DIALOGUE_KEY = booleanPreferencesKey("separate_character_dialogue")
     private val PROVIDE_CHOICES_ENABLED_KEY = booleanPreferencesKey("provide_choices_enabled")
+    private val RESPONSE_LENGTH_KEY = stringPreferencesKey("response_length")
     
     // TTS Settings Keys
     private val TTS_ENABLED_KEY = booleanPreferencesKey("tts_enabled")
@@ -198,6 +206,17 @@ class ChatSettingsManager private constructor(private val context: Context) {
     val provideChoicesEnabled: Flow<Boolean> = context.chatSettingsDataStore.data
         .map { preferences ->
             preferences[PROVIDE_CHOICES_ENABLED_KEY] ?: true // Default ON
+        }
+
+    // AI Response Length Setting
+    val responseLength: Flow<ResponseLength> = context.chatSettingsDataStore.data
+        .map { preferences ->
+            val value = preferences[RESPONSE_LENGTH_KEY] ?: ResponseLength.MEDIUM.name
+            try {
+                ResponseLength.valueOf(value)
+            } catch (e: IllegalArgumentException) {
+                ResponseLength.MEDIUM
+            }
         }
 
     // TTS Settings
@@ -331,6 +350,12 @@ class ChatSettingsManager private constructor(private val context: Context) {
         }
     }
 
+    suspend fun setResponseLength(length: ResponseLength) {
+        context.chatSettingsDataStore.edit { preferences ->
+            preferences[RESPONSE_LENGTH_KEY] = length.name
+        }
+    }
+
     // TTS Setters
     suspend fun setTtsEnabled(enabled: Boolean) {
         context.chatSettingsDataStore.edit { preferences ->
@@ -384,6 +409,7 @@ class ChatSettingsManager private constructor(private val context: Context) {
             preferences[SAFETY_DANGEROUS_CONTENT_KEY] = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE.name
             preferences[SEPARATE_CHARACTER_DIALOGUE_KEY] = true
             preferences[PROVIDE_CHOICES_ENABLED_KEY] = true
+            preferences[RESPONSE_LENGTH_KEY] = ResponseLength.MEDIUM.name
             // TTS defaults
             preferences[TTS_ENABLED_KEY] = false
             preferences[AUTO_TTS_ENABLED_KEY] = false
@@ -413,6 +439,7 @@ class ChatSettingsManager private constructor(private val context: Context) {
             safetyDangerousContent = safetyDangerousContent.first(),
             separateCharacterDialogue = separateCharacterDialogue.first(),
             provideChoicesEnabled = provideChoicesEnabled.first(),
+            responseLength = responseLength.first(),
             // TTS
             ttsEnabled = ttsEnabled.first(),
             autoTtsEnabled = autoTtsEnabled.first(),
@@ -441,6 +468,7 @@ data class ChatSettings(
     val safetyDangerousContent: SafetyThreshold = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE,
     val separateCharacterDialogue: Boolean = true,
     val provideChoicesEnabled: Boolean = true,
+    val responseLength: ResponseLength = ResponseLength.MEDIUM,
     // TTS Settings
     val ttsEnabled: Boolean = false,
     val autoTtsEnabled: Boolean = false,

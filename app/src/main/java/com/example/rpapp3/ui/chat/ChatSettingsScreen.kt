@@ -28,6 +28,7 @@ import com.example.rpapp3.data.ElevenLabsService
 import com.example.rpapp3.data.TTSManager
 import com.example.rpapp3.data.TTSPlaybackState
 import com.example.rpapp3.data.MessageFilterMode
+import com.example.rpapp3.data.ResponseLength
 import com.example.rpapp3.data.SafetyThreshold
 import com.example.rpapp3.data.model.ElevenLabsTTSModels
 import com.example.rpapp3.data.model.Voice
@@ -74,6 +75,7 @@ fun ChatSettingsScreen(
     val safetyDangerousContent by chatSettingsManager.safetyDangerousContent.collectAsState(initial = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE)
     val separateCharacterDialogue by chatSettingsManager.separateCharacterDialogue.collectAsState(initial = true)
     val provideChoicesEnabled by chatSettingsManager.provideChoicesEnabled.collectAsState(initial = true)
+    val responseLength by chatSettingsManager.responseLength.collectAsState(initial = ResponseLength.MEDIUM)
     
     // TTS Settings
     val ttsEnabled by chatSettingsManager.ttsEnabled.collectAsState(initial = false)
@@ -334,6 +336,14 @@ fun ChatSettingsScreen(
                         description = "See responses appear in real-time as they're generated",
                         checked = streamingEnabled,
                         onCheckedChange = { scope.launch { chatSettingsManager.setStreamingEnabled(it) } }
+                    )
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    // Response Length Dropdown
+                    ResponseLengthDropdown(
+                        value = responseLength,
+                        onValueChange = { scope.launch { chatSettingsManager.setResponseLength(it) } }
                     )
                     
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
@@ -991,6 +1001,76 @@ private fun SafetySettingDropdown(
                         text = { Text(label) },
                         onClick = {
                             onValueChange(threshold)
+                            expanded = false
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ResponseLengthDropdown(
+    value: ResponseLength,
+    onValueChange: (ResponseLength) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    
+    val options = listOf(
+        ResponseLength.SHORT to "Short" to "1-2 paragraphs, concise",
+        ResponseLength.MEDIUM to "Medium" to "2-3 paragraphs, balanced",
+        ResponseLength.LONG to "Long" to "4-5 paragraphs, detailed",
+        ResponseLength.VERY_LONG to "Very Long" to "No limit, elaborate"
+    )
+    
+    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+        Text(
+            text = "Response Length",
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Medium
+        )
+        Text(
+            text = "Controls how long AI responses should be",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        ExposedDropdownMenuBox(
+            expanded = expanded,
+            onExpandedChange = { expanded = !expanded },
+            modifier = Modifier.padding(top = 8.dp)
+        ) {
+            val selectedOption = options.find { it.first.first == value }
+            OutlinedTextField(
+                value = selectedOption?.first?.second ?: "Medium",
+                onValueChange = {},
+                readOnly = true,
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                supportingText = { Text(selectedOption?.second ?: "") },
+                modifier = Modifier
+                    .menuAnchor()
+                    .fillMaxWidth()
+            )
+            ExposedDropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
+            ) {
+                options.forEach { (lengthAndLabel, description) ->
+                    val (length, label) = lengthAndLabel
+                    DropdownMenuItem(
+                        text = { 
+                            Column {
+                                Text(label)
+                                Text(
+                                    description,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        },
+                        onClick = {
+                            onValueChange(length)
                             expanded = false
                         }
                     )

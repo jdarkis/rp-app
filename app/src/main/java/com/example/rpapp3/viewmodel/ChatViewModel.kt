@@ -12,6 +12,7 @@ import com.example.rpapp3.data.ApiKeyManager
 import com.example.rpapp3.data.ChatSettings
 import com.example.rpapp3.data.ChatSettingsManager
 import com.example.rpapp3.data.ElevenLabsService
+import com.example.rpapp3.data.ResponseLength
 import com.example.rpapp3.data.SafetyThreshold
 import com.example.rpapp3.data.TTSManager
 import com.example.rpapp3.data.TTSPlaybackState
@@ -321,6 +322,26 @@ class ChatViewModel : ViewModel() {
                 if (character.systemInstructions.isNotBlank()) {
                     appendLine("Special Instructions: ${character.systemInstructions}")
                 }
+                // Add language instruction for the character
+                val languageName = when (character.language) {
+                    "en" -> "English"
+                    "ru" -> "Russian"
+                    "es" -> "Spanish"
+                    "fr" -> "French"
+                    "de" -> "German"
+                    "it" -> "Italian"
+                    "pt" -> "Portuguese"
+                    "zh" -> "Chinese"
+                    "ja" -> "Japanese"
+                    "ko" -> "Korean"
+                    "ar" -> "Arabic"
+                    "hi" -> "Hindi"
+                    "pl" -> "Polish"
+                    "uk" -> "Ukrainian"
+                    "lt" -> "Lithuanian"
+                    else -> character.language
+                }
+                appendLine("Language: This character MUST speak and respond in $languageName. All dialogue from ${character.name} should be in $languageName.")
             }
             
             appendLine()
@@ -331,6 +352,35 @@ class ChatViewModel : ViewModel() {
             appendLine("4. Be creative and engaging while staying consistent with the world setting")
             appendLine("5. If multiple characters are present, you may respond as any or all of them as appropriate")
             appendLine("6. Write in a narrative style, describing actions, dialogue, and scenes naturally")
+            
+            // Add response length instructions
+            appendLine()
+            appendLine("=== RESPONSE LENGTH ===")
+            when (currentSettings.responseLength) {
+                ResponseLength.SHORT -> {
+                    appendLine("Keep your responses SHORT and CONCISE.")
+                    appendLine("Aim for 1-2 paragraphs per response.")
+                    appendLine("Focus on the most important actions and dialogue, avoiding unnecessary descriptions.")
+                    appendLine("Get to the point quickly and let the story move forward efficiently.")
+                }
+                ResponseLength.MEDIUM -> {
+                    appendLine("Keep your responses at a MODERATE length.")
+                    appendLine("Aim for 2-3 paragraphs per response.")
+                    appendLine("Balance action, dialogue, and description. Include enough detail to be immersive without being overly verbose.")
+                }
+                ResponseLength.LONG -> {
+                    appendLine("Write DETAILED and THOROUGH responses.")
+                    appendLine("Aim for 4-5 paragraphs per response.")
+                    appendLine("Include rich descriptions of scenes, character emotions, and actions.")
+                    appendLine("Take time to develop the narrative and atmosphere.")
+                }
+                ResponseLength.VERY_LONG -> {
+                    appendLine("Write ELABORATE and EXTENSIVE responses.")
+                    appendLine("There is no limit on response length - be as detailed as the scene requires.")
+                    appendLine("Include comprehensive descriptions, inner thoughts, environmental details, and nuanced character interactions.")
+                    appendLine("Fully develop each scene with immersive storytelling.")
+                }
+            }
             
             // Add dialogue format instructions when separateCharacterDialogue is enabled
             if (currentSettings.separateCharacterDialogue) {
@@ -372,6 +422,11 @@ class ChatViewModel : ViewModel() {
                 appendLine("=== AUDIO TAG USAGE FOR TTS ===")
                 appendLine("To generate realistic speech, you may use Audio Tags within dialogue. These are performance directions wrapped in square brackets [...].")
                 appendLine()
+                appendLine("CRITICAL FORMATTING RULE:")
+                appendLine("Audio tags MUST ALWAYS be placed INSIDE the quotation marks, never outside.")
+                appendLine("CORRECT: \"[sighs] Hi, how are you?\"")
+                appendLine("INCORRECT: [sighs]\"Hi, how are you?\"")
+                appendLine()
                 appendLine("THE GOLDEN RULE - STRATEGIC USAGE:")
                 appendLine("• Do NOT overuse tags. Do not tag every sentence or place tags between every few words.")
                 appendLine("• Use ONLY when necessary to shift emotion, pace, or volume away from default delivery.")
@@ -385,13 +440,15 @@ class ChatViewModel : ViewModel() {
                 appendLine("• Character Identity (if required): [French accent], [American accent], [deep voice], [childlike tone]")
                 appendLine()
                 appendLine("PLACEMENT RULES:")
+                appendLine("• Audio tags must be inside quotation marks, as part of the spoken dialogue")
                 appendLine("• Match context - [whispers] fits sneaking, not starting a party")
-                appendLine("• Start of line colors entire delivery: [tired] I can't do this anymore.")
-                appendLine("• Mid-sentence only for sudden shifts: I was fine, until... [hesitates] until I saw him.")
+                appendLine("• Start of dialogue colors entire delivery: \"[tired] I can't do this anymore.\"")
+                appendLine("• Mid-sentence only for sudden shifts: \"I was fine, until... [hesitates] until I saw him.\"")
                 appendLine()
                 appendLine("EXAMPLES:")
-                appendLine("GOOD: [laughing] That was hilarious! I can't believe you did that.")
-                appendLine("BAD: [laughing] That [pause] was [excited] hilarious! [breathing] I can't [gasp] believe you did that.")
+                appendLine("GOOD: \"[laughing] That was hilarious! I can't believe you did that.\"")
+                appendLine("BAD: [laughing]\"That was hilarious! I can't believe you did that.\"")
+                appendLine("BAD: \"[laughing] That [pause] was [excited] hilarious! [breathing] I can't [gasp] believe you did that.\"")
             }
         }
     }
