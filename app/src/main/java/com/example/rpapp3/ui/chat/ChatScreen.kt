@@ -220,6 +220,9 @@ fun ChatScreen(
     // Track if we were previously loading (to detect when AI response completes)
     var wasLoading by remember { mutableStateOf(false) }
     
+    // Track if auto TTS was just enabled (to skip speaking existing messages)
+    var previousAutoTtsEnabled by remember { mutableStateOf(autoTtsEnabled) }
+    
     // State for pending input text (from choice selection)
     var pendingInputText by remember { mutableStateOf<String?>(null) }
     
@@ -241,6 +244,13 @@ fun ChatScreen(
     
     // Auto-TTS for NEW AI messages only - triggered when loading finishes
     LaunchedEffect(isLoading, autoTtsEnabled, ttsEnabled) {
+        // Detect if auto TTS was just enabled (skip speaking existing messages)
+        val autoTtsJustEnabled = autoTtsEnabled && !previousAutoTtsEnabled
+        previousAutoTtsEnabled = autoTtsEnabled
+        
+        // If auto TTS was just enabled, don't speak - wait for new messages
+        if (autoTtsJustEnabled) return@LaunchedEffect
+        
         // Detect transition from loading to not loading (AI just finished responding)
         val justFinishedLoading = wasLoading && !isLoading
         wasLoading = isLoading

@@ -1077,6 +1077,11 @@ class ChatViewModel : ViewModel() {
                     _ttsManager?.playbackState?.first { state ->
                         state == TTSPlaybackState.IDLE || state == TTSPlaybackState.ERROR || state == TTSPlaybackState.COMPLETED
                     }
+                    // Add a small delay after completion to ensure audio buffer is fully flushed
+                    // This prevents cutting off the end of dialogue when switching segments
+                    if (i + 1 < segments.size) {
+                        delay(150L) // 150ms buffer to allow audio to fully finish
+                    }
                 } catch (e: Exception) {
                     Log.w("ChatViewModel", "Error waiting for playback: ${e.message}")
                 }
