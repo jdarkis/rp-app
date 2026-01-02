@@ -282,9 +282,12 @@ fun ChatScreen(
                 else -> lastAiMessage.text
             }
             
+            // Remove action/dialogue choices from the text before speaking
+            val (_, textWithoutChoices) = parseChoices(displayText)
+            
             // Parse segments if dialogue separation is enabled
             if (separateCharacterDialogue) {
-                val segments = parseDialogueSegments(displayText)
+                val segments = parseDialogueSegments(textWithoutChoices)
                 // Build list of speakable segments with character IDs
                 val speakableSegments = segments.map { segment ->
                     val character = if (segment.isCharacterDialogue && segment.characterName != null) {
@@ -299,8 +302,8 @@ fun ChatScreen(
                 // Speak all segments sequentially with appropriate voices
                 viewModel.speakSegmentsSequentially(speakableSegments)
             } else {
-                // Speak the whole visible message
-                viewModel.speakText(displayText, lastAiMessage.characterId)
+                // Speak the whole visible message (without choices)
+                viewModel.speakText(textWithoutChoices, lastAiMessage.characterId)
             }
         }
     }

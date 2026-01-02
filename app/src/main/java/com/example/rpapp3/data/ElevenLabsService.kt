@@ -114,7 +114,7 @@ class ElevenLabsService(private val context: Context) {
      * @param voiceId The voice ID to search for
      * @return SharedVoiceInfo if found, null otherwise
      */
-    private suspend fun searchSharedVoice(voiceId: String): SharedVoiceInfo? {
+    suspend fun searchSharedVoice(voiceId: String): SharedVoiceInfo? {
         return try {
             val apiKey = apiKeyManager.getCurrentApiKey() ?: return null
             val searchUrl = URL("$BASE_URL$SHARED_VOICES_ENDPOINT?search=$voiceId&page_size=5")

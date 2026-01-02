@@ -45,4 +45,5 @@ sealed class Routes(val route: String) {
     data object SettingsElevenLabsApiKeys : Routes("settings/elevenlabs-api-keys")
     data object SettingsAppearance : Routes("settings/appearance")
     data object SettingsUnlockPrompt : Routes("settings/unlock-prompt")
+    data object SettingsElevenLabsVoices : Routes("settings/elevenlabs-voices")
 }

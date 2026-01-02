@@ -177,6 +177,14 @@ class ChatViewModel : ViewModel() {
             // Load chat
             _currentChat.value = chatRepository.getChat(chatId)
             
+            // Load messages BEFORE initializing AI so history is available
+            try {
+                val existingMessages = chatRepository.getMessagesOnce(chatId)
+                _messages.addAll(existingMessages)
+            } catch (e: Exception) {
+                // Ignore errors loading messages - they'll be loaded via Flow below
+            }
+            
             // Load characters
             val chat = _currentChat.value
             if (chat != null) {
@@ -559,6 +567,17 @@ class ChatViewModel : ViewModel() {
                 _error.value = "Failed to initialize AI. Check your API key in Settings."
                 _isLoading.value = false
                 return
+            }
+            
+            // Refresh chat session history with current messages before sending
+            // This ensures any messages loaded after initial AI setup are included
+            if (generativeModel != null) {
+                val history = _messages.map { message ->
+                    content(role = if (message.isUser) "user" else "model") {
+                        text(message.text)
+                    }
+                }
+                chatSession = generativeModel?.startChat(history = history)
             }
             
             // Check if streaming is enabled
@@ -1073,7 +1092,15 @@ class ChatViewModel : ViewModel() {
                 _ttsManager?.playFromBytes(audioData, segmentId)
                 
                 // Wait for playback to complete
+                // IMPORTANT: First wait for PLAYING state (playFromBytes calls stop() which briefly sets IDLE)
+                // Then wait for completion, otherwise we catch the transient IDLE state
                 try {
+                    // Wait for playback to actually start
+                    _ttsManager?.playbackState?.first { state ->
+                        state == TTSPlaybackState.PLAYING || state == TTSPlaybackState.ERROR
+                    }
+                    
+                    // Now wait for playback to finish
                     _ttsManager?.playbackState?.first { state ->
                         state == TTSPlaybackState.IDLE || state == TTSPlaybackState.ERROR || state == TTSPlaybackState.COMPLETED
                     }

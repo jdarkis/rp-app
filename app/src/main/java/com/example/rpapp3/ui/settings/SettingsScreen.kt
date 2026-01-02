@@ -10,6 +10,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material3.*
@@ -26,7 +27,8 @@ fun SettingsScreen(
     onNavigateToApiKeys: () -> Unit,
     onNavigateToElevenLabsApiKeys: () -> Unit,
     onNavigateToAppearance: () -> Unit,
-    onNavigateToUnlockPrompt: () -> Unit
+    onNavigateToUnlockPrompt: () -> Unit,
+    onNavigateToElevenLabsVoices: () -> Unit
 ) {
     Scaffold(
         topBar = {
@@ -81,6 +83,13 @@ fun SettingsScreen(
                     title = "Unlock Prompt",
                     subtitle = "Custom prompt added to chat system instructions",
                     onClick = onNavigateToUnlockPrompt
+                )
+                
+                SettingsCategoryItem(
+                    icon = Icons.Default.Mic,
+                    title = "ElevenLabs Voices",
+                    subtitle = "Manage custom TTS voices",
+                    onClick = onNavigateToElevenLabsVoices
                 )
                 
                 SettingsCategoryItem(
