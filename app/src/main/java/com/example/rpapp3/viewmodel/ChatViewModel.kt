@@ -132,7 +132,8 @@ class ChatViewModel : ViewModel() {
                     _error.value = e.message
                 }
                 .collect { chatList ->
-                    _chats.value = chatList
+                    // Filter out private chats - they are accessed via character details, not the chat list
+                    _chats.value = chatList.filter { !it.isPrivateChat }
                 }
         }
     }

@@ -315,4 +315,142 @@ class ChatRepository {
             Result.failure(e)
         }
     }
+    
+    /**
+     * Get all private chats for a specific character
+     */
+    suspend fun getPrivateChatsByCharacter(characterId: String): List<Chat> {
+        return try {
+            val docs = chatsCollection
+                .whereEqualTo("isPrivateChat", true)
+                .whereEqualTo("privateCharacterId", characterId)
+                .get()
+                .await()
+            
+            docs.documents.mapNotNull { doc ->
+                doc.data?.let { Chat.fromMap(it) }
+            }.sortedByDescending { it.updatedAt }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+    
+    /**
+     * Get or create a private chat for a character
+     * Returns existing private chat if one exists, otherwise creates a new one
+     */
+    suspend fun getOrCreatePrivateChat(characterId: String, worldId: String, characterName: String): Result<Chat> {
+        return try {
+            // Check for existing private chat first
+            val existing = getPrivateChatsByCharacter(characterId).firstOrNull()
+            if (existing != null) {
+                return Result.success(existing)
+            }
+            
+            // Create new private chat
+            val docRef = chatsCollection.document()
+            val newChat = Chat(
+                id = docRef.id,
+                worldId = worldId,
+                characterIds = listOf(characterId),
+                title = "Private: $characterName",
+                isPrivateChat = true,
+                privateCharacterId = characterId
+            )
+            docRef.set(newChat.toMap()).await()
+            Result.success(newChat)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+    
+    /**
+     * Update the context chat IDs for a private chat
+     */
+    suspend fun updateContextChatIds(chatId: String, contextChatIds: List<String>): Result<Unit> {
+        return try {
+            chatsCollection.document(chatId)
+                .update(
+                    mapOf(
+                        "contextChatIds" to contextChatIds,
+                        "updatedAt" to System.currentTimeMillis()
+                    )
+                )
+                .await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+    
+    /**
+     * Get non-private chats for a world (for context selection)
+     * Note: We filter in-memory because older chats may not have the isPrivateChat field
+     */
+    suspend fun getWorldChatsForContext(worldId: String): List<Chat> {
+        return try {
+            val docs = chatsCollection
+                .whereEqualTo("worldId", worldId)
+                .get()
+                .await()
+            
+            docs.documents.mapNotNull { doc ->
+                doc.data?.let { Chat.fromMap(it) }
+            }
+            .filter { !it.isPrivateChat }  // Filter out private chats in-memory
+            .sortedByDescending { it.updatedAt }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+    
+    /**
+     * Restart a private chat by deleting all its messages
+     * The chat itself remains, only messages are cleared
+     */
+    suspend fun restartPrivateChat(chatId: String): Result<Unit> {
+        return try {
+            // Delete all messages
+            val docs = chatsCollection
+                .document(chatId)
+                .collection("messages")
+                .get()
+                .await()
+            
+            val batch = firestore.batch()
+            docs.documents.forEach { doc ->
+                batch.delete(doc.reference)
+            }
+            batch.commit().await()
+            
+            // Update the chat's updatedAt timestamp
+            chatsCollection.document(chatId)
+                .update("updatedAt", System.currentTimeMillis())
+                .await()
+            
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+    
+    /**
+     * Update the writing style for a private chat
+     */
+    suspend fun updateWritingStyle(chatId: String, writingStyle: String): Result<Unit> {
+        return try {
+            chatsCollection.document(chatId)
+                .update(
+                    mapOf(
+                        "writingStyle" to writingStyle,
+                        "updatedAt" to System.currentTimeMillis()
+                    )
+                )
+                .await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 }
+

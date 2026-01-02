@@ -24,6 +24,8 @@ import com.example.rpapp3.ui.world.CreateWorldScreen
 import com.example.rpapp3.ui.world.EditWorldScreen
 import com.example.rpapp3.ui.world.WorldDetailScreen
 import com.example.rpapp3.ui.world.WorldListScreen
+import com.example.rpapp3.ui.privatechat.PrivateChatScreen
+import com.example.rpapp3.ui.privatechat.PrivateChatSettingsScreen
 
 @Composable
 fun AppNavigation(navController: NavHostController) {
@@ -142,6 +144,9 @@ fun AppNavigation(navController: NavHostController) {
                 onNavigateBack = { navController.popBackStack() },
                 onEditCharacter = {
                     navController.navigate(Routes.EditCharacter.createRoute(worldId, characterId))
+                },
+                onPrivateChat = {
+                    navController.navigate(Routes.PrivateChat.createRoute(worldId, characterId))
                 }
             )
         }
@@ -279,6 +284,42 @@ fun AppNavigation(navController: NavHostController) {
         
         composable(Routes.SettingsElevenLabsVoices.route) {
             ElevenLabsVoicesScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+        
+        // Private Chat routes
+        composable(
+            route = Routes.PrivateChat.route,
+            arguments = listOf(
+                navArgument("worldId") { type = NavType.StringType },
+                navArgument("characterId") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val worldId = backStackEntry.arguments?.getString("worldId") ?: return@composable
+            val characterId = backStackEntry.arguments?.getString("characterId") ?: return@composable
+            PrivateChatScreen(
+                characterId = characterId,
+                worldId = worldId,
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToSettings = {
+                    navController.navigate(Routes.PrivateChatSettings.createRoute(worldId, characterId))
+                }
+            )
+        }
+        
+        composable(
+            route = Routes.PrivateChatSettings.route,
+            arguments = listOf(
+                navArgument("worldId") { type = NavType.StringType },
+                navArgument("characterId") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val worldId = backStackEntry.arguments?.getString("worldId") ?: return@composable
+            val characterId = backStackEntry.arguments?.getString("characterId") ?: return@composable
+            PrivateChatSettingsScreen(
+                characterId = characterId,
+                worldId = worldId,
                 onNavigateBack = { navController.popBackStack() }
             )
         }

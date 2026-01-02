@@ -46,4 +46,12 @@ sealed class Routes(val route: String) {
     data object SettingsAppearance : Routes("settings/appearance")
     data object SettingsUnlockPrompt : Routes("settings/unlock-prompt")
     data object SettingsElevenLabsVoices : Routes("settings/elevenlabs-voices")
+    
+    // Private Chat routes
+    data object PrivateChat : Routes("worlds/{worldId}/characters/{characterId}/private-chat") {
+        fun createRoute(worldId: String, characterId: String) = "worlds/$worldId/characters/$characterId/private-chat"
+    }
+    data object PrivateChatSettings : Routes("worlds/{worldId}/characters/{characterId}/private-chat/settings") {
+        fun createRoute(worldId: String, characterId: String) = "worlds/$worldId/characters/$characterId/private-chat/settings"
+    }
 }

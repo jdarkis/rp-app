@@ -93,6 +93,15 @@ class ChatSettingsManager private constructor(private val context: Context) {
     
     // Narrator Language Setting
     private val NARRATOR_LANGUAGE_KEY = stringPreferencesKey("narrator_language")
+    
+    // Private Chat TTS Settings (separate from normal chat settings)
+    private val PRIVATE_TTS_ENABLED_KEY = booleanPreferencesKey("private_tts_enabled")
+    private val PRIVATE_AUTO_TTS_ENABLED_KEY = booleanPreferencesKey("private_auto_tts_enabled")
+    private val PRIVATE_TTS_AUDIO_TAGS_ENABLED_KEY = booleanPreferencesKey("private_tts_audio_tags_enabled")
+    
+    // Private Chat Advanced Settings (separate from normal chat)
+    private val PRIVATE_THINKING_ENABLED_KEY = booleanPreferencesKey("private_thinking_enabled")
+    private val PRIVATE_UNLOCK_PROMPT_ENABLED_KEY = booleanPreferencesKey("private_unlock_prompt_enabled")
 
     // Message Display Settings
     val filterMode: Flow<MessageFilterMode> = context.chatSettingsDataStore.data
@@ -263,6 +272,33 @@ class ChatSettingsManager private constructor(private val context: Context) {
             preferences[NARRATOR_LANGUAGE_KEY] ?: "en" // Default English
         }
 
+    // Private Chat TTS Settings (separate from normal chat)
+    val privateTtsEnabled: Flow<Boolean> = context.chatSettingsDataStore.data
+        .map { preferences ->
+            preferences[PRIVATE_TTS_ENABLED_KEY] ?: false // Default OFF
+        }
+
+    val privateAutoTtsEnabled: Flow<Boolean> = context.chatSettingsDataStore.data
+        .map { preferences ->
+            preferences[PRIVATE_AUTO_TTS_ENABLED_KEY] ?: false // Default OFF
+        }
+
+    val privateTtsAudioTagsEnabled: Flow<Boolean> = context.chatSettingsDataStore.data
+        .map { preferences ->
+            preferences[PRIVATE_TTS_AUDIO_TAGS_ENABLED_KEY] ?: false // Default OFF
+        }
+
+    // Private Chat Advanced Settings Flows
+    val privateThinkingEnabled: Flow<Boolean> = context.chatSettingsDataStore.data
+        .map { preferences ->
+            preferences[PRIVATE_THINKING_ENABLED_KEY] ?: false // Default OFF
+        }
+
+    val privateUnlockPromptEnabled: Flow<Boolean> = context.chatSettingsDataStore.data
+        .map { preferences ->
+            preferences[PRIVATE_UNLOCK_PROMPT_ENABLED_KEY] ?: false // Default OFF
+        }
+
     // Setters for Message Display
     suspend fun setFilterMode(mode: MessageFilterMode) {
         context.chatSettingsDataStore.edit { preferences ->
@@ -417,6 +453,38 @@ class ChatSettingsManager private constructor(private val context: Context) {
         }
     }
 
+    // Private Chat TTS Setters
+    suspend fun setPrivateTtsEnabled(enabled: Boolean) {
+        context.chatSettingsDataStore.edit { preferences ->
+            preferences[PRIVATE_TTS_ENABLED_KEY] = enabled
+        }
+    }
+
+    suspend fun setPrivateAutoTtsEnabled(enabled: Boolean) {
+        context.chatSettingsDataStore.edit { preferences ->
+            preferences[PRIVATE_AUTO_TTS_ENABLED_KEY] = enabled
+        }
+    }
+
+    suspend fun setPrivateTtsAudioTagsEnabled(enabled: Boolean) {
+        context.chatSettingsDataStore.edit { preferences ->
+            preferences[PRIVATE_TTS_AUDIO_TAGS_ENABLED_KEY] = enabled
+        }
+    }
+
+    // Private Chat Advanced Settings Setters
+    suspend fun setPrivateThinkingEnabled(enabled: Boolean) {
+        context.chatSettingsDataStore.edit { preferences ->
+            preferences[PRIVATE_THINKING_ENABLED_KEY] = enabled
+        }
+    }
+
+    suspend fun setPrivateUnlockPromptEnabled(enabled: Boolean) {
+        context.chatSettingsDataStore.edit { preferences ->
+            preferences[PRIVATE_UNLOCK_PROMPT_ENABLED_KEY] = enabled
+        }
+    }
+
     /**
      * Restore all settings to their default values
      */
@@ -484,6 +552,23 @@ class ChatSettingsManager private constructor(private val context: Context) {
             narratorLanguage = narratorLanguage.first()
         )
     }
+
+    /**
+     * Get private chat TTS settings (separate from normal chat)
+     */
+    suspend fun getPrivateChatSettings(): PrivateChatSettings {
+        return PrivateChatSettings(
+            ttsEnabled = privateTtsEnabled.first(),
+            autoTtsEnabled = privateAutoTtsEnabled.first(),
+            ttsAudioTagsEnabled = privateTtsAudioTagsEnabled.first(),
+            // These are shared with normal chat settings
+            narratorVoiceId = narratorVoiceId.first(),
+            ttsModelId = ttsModelId.first(),
+            // Advanced settings
+            thinkingEnabled = privateThinkingEnabled.first(),
+            unlockPromptEnabled = privateUnlockPromptEnabled.first()
+        )
+    }
 }
 
 data class ChatSettings(
@@ -515,4 +600,19 @@ data class ChatSettings(
     val unlockPromptEnabled: Boolean = false,
     // Narrator Language (default English)
     val narratorLanguage: String = "en"
+)
+
+/**
+ * Settings specifically for private chats (separate from normal chat settings)
+ */
+data class PrivateChatSettings(
+    val ttsEnabled: Boolean = false,
+    val autoTtsEnabled: Boolean = false,
+    val ttsAudioTagsEnabled: Boolean = false,
+    // Voice settings are shared with normal chat
+    val narratorVoiceId: String = ChatSettingsManager.DEFAULT_NARRATOR_VOICE_ID,
+    val ttsModelId: String = ChatSettingsManager.DEFAULT_TTS_MODEL_ID,
+    // Advanced settings for private chat
+    val thinkingEnabled: Boolean = false,
+    val unlockPromptEnabled: Boolean = false
 )

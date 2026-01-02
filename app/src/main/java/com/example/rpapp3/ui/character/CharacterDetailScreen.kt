@@ -54,7 +54,8 @@ fun CharacterDetailScreen(
     characterId: String,
     viewModel: CharacterViewModel = viewModel(),
     onNavigateBack: () -> Unit,
-    onEditCharacter: () -> Unit
+    onEditCharacter: () -> Unit,
+    onPrivateChat: () -> Unit = {}  // Navigate to private chat with this character
 ) {
     val character by viewModel.currentCharacter.collectAsState()
     
@@ -91,7 +92,19 @@ fun CharacterDetailScreen(
                 )
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = onPrivateChat,
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Chat,
+                    contentDescription = "Private Chat"
+                )
+            }
+        }
     ) { paddingValues ->
         if (viewModel.isLoading) {
             Box(
