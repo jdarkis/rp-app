@@ -255,4 +255,64 @@ class ChatRepository {
             Result.failure(e)
         }
     }
+    
+    /**
+     * Duplicate a chat and all its messages
+     */
+    suspend fun duplicateChat(chatId: String): Result<Chat> {
+        return try {
+            // Get the original chat
+            val originalChat = getChat(chatId) ?: return Result.failure(Exception("Chat not found"))
+            
+            // Create a new chat with a copy suffix
+            val newDocRef = chatsCollection.document()
+            val newChat = originalChat.copy(
+                id = newDocRef.id,
+                title = "${originalChat.title} (Copy)",
+                createdAt = System.currentTimeMillis(),
+                updatedAt = System.currentTimeMillis()
+            )
+            newDocRef.set(newChat.toMap()).await()
+            
+            // Copy all messages
+            val messages = getMessagesOnce(chatId)
+            val batch = firestore.batch()
+            messages.forEach { message ->
+                val newMessageId = java.util.UUID.randomUUID().toString()
+                val newMessage = message.copy(
+                    id = newMessageId,
+                    chatId = newChat.id
+                )
+                val messageDocRef = chatsCollection
+                    .document(newChat.id)
+                    .collection("messages")
+                    .document(newMessageId)
+                batch.set(messageDocRef, newMessage.toMap())
+            }
+            batch.commit().await()
+            
+            Result.success(newChat)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+    
+    /**
+     * Update the character list for a chat
+     */
+    suspend fun updateChatCharacters(chatId: String, characterIds: List<String>): Result<Unit> {
+        return try {
+            chatsCollection.document(chatId)
+                .update(
+                    mapOf(
+                        "characterIds" to characterIds,
+                        "updatedAt" to System.currentTimeMillis()
+                    )
+                )
+                .await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 }

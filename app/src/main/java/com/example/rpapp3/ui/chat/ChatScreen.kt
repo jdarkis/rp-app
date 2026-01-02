@@ -242,6 +242,13 @@ fun ChatScreen(
         }
     }
     
+    // Load cached audio URLs for AI messages
+    LaunchedEffect(messages) {
+        messages.filter { !it.isUser }.forEach { message ->
+            viewModel.loadCachedAudioUrlsForMessage(message.id)
+        }
+    }
+    
     // Auto-TTS for NEW AI messages only - triggered when loading finishes
     LaunchedEffect(isLoading, autoTtsEnabled, ttsEnabled) {
         // Detect if auto TTS was just enabled (skip speaking existing messages)
@@ -419,7 +426,13 @@ fun ChatScreen(
                         isPlayingTTS = playbackState?.value == TTSPlaybackState.PLAYING,
                         isLoadingTTS = playbackState?.value == TTSPlaybackState.LOADING,
                         currentPlayingSegmentId = currentPlayingId?.value,
-                        onSpeak = { text, characterId -> viewModel.speakText(text, characterId) },
+                        cachedAudioUrls = viewModel.getCachedAudioUrlsForMessage(message.id),
+                        onSpeak = { text, characterId, msgId, segmentIdx -> 
+                            viewModel.speakTextWithCaching(text, characterId, msgId, segmentIdx)
+                        },
+                        onPlayCached = { audioUrl, segmentId ->
+                            viewModel.playCachedAudio(audioUrl, segmentId)
+                        },
                         onStopSpeaking = { viewModel.stopSpeaking() }
                     )
                 }
@@ -557,7 +570,9 @@ fun MessageBubble(
     isPlayingTTS: Boolean = false,
     isLoadingTTS: Boolean = false,
     currentPlayingSegmentId: String? = null,
-    onSpeak: ((text: String, characterId: String?) -> Unit)? = null,
+    cachedAudioUrls: Map<Int, String> = emptyMap(),
+    onSpeak: ((text: String, characterId: String?, messageId: String, segmentIndex: Int) -> Unit)? = null,
+    onPlayCached: ((audioUrl: String, segmentId: String) -> Unit)? = null,
     onStopSpeaking: (() -> Unit)? = null,
     isLast: Boolean = false,
     isChatLoading: Boolean = false
@@ -776,41 +791,65 @@ fun MessageBubble(
                             expanded = showMenuForSegment == index,
                             onDismissRequest = { showMenuForSegment = null }
                         ) {
-                            // TTS Speak button for AI messages - available on all segments
-                            if (!isUser && ttsEnabled && onSpeak != null && onStopSpeaking != null) {
+                            // TTS options for AI messages - available on all segments
+                            if (!isUser && ttsEnabled && onStopSpeaking != null) {
                                 val segmentId = "${message.id}_$index"
                                 val isThisSegmentPlaying = currentPlayingSegmentId == segmentId && isPlayingTTS
                                 val isThisSegmentLoading = currentPlayingSegmentId == segmentId && isLoadingTTS
+                                val cachedAudioUrl = cachedAudioUrls[index]
                                 
-                                DropdownMenuItem(
-                                    text = { 
-                                        Text(when {
-                                            isThisSegmentPlaying -> "Stop Speaking"
-                                            isThisSegmentLoading -> "Generating..."
-                                            else -> "Speak"
-                                        })
-                                    },
-                                    onClick = {
-                                                showMenuForSegment = null
-                                        if (isThisSegmentPlaying) {
-                                            onStopSpeaking()
-                                        } else if (!isThisSegmentLoading) {
-                                            // Pass the segment text and character info
-                                            onSpeak(segment.text, segmentCharacter?.id)
+                                // Play button - show when cached audio exists
+                                if (cachedAudioUrl != null && onPlayCached != null) {
+                                    DropdownMenuItem(
+                                        text = { 
+                                            Text(if (isThisSegmentPlaying) "Stop" else "Play")
+                                        },
+                                        onClick = {
+                                            showMenuForSegment = null
+                                            if (isThisSegmentPlaying) {
+                                                onStopSpeaking()
+                                            } else {
+                                                onPlayCached(cachedAudioUrl, segmentId)
+                                            }
+                                        },
+                                        leadingIcon = {
+                                            if (isThisSegmentPlaying) {
+                                                Icon(Icons.Default.Stop, contentDescription = null)
+                                            } else {
+                                                Icon(Icons.Default.PlayArrow, contentDescription = null)
+                                            }
                                         }
-                                    },
-                                    leadingIcon = {
-                                        when {
-                                            isThisSegmentLoading -> CircularProgressIndicator(
-                                                modifier = Modifier.size(24.dp),
-                                                strokeWidth = 2.dp
-                                            )
-                                            isThisSegmentPlaying -> Icon(Icons.Default.Stop, contentDescription = null)
-                                            else -> Icon(Icons.Default.VolumeUp, contentDescription = null)
-                                        }
-                                    },
-                                    enabled = !isThisSegmentLoading
-                                )
+                                    )
+                                }
+                                
+                                // Listen button - always available to generate new TTS
+                                if (onSpeak != null) {
+                                    DropdownMenuItem(
+                                        text = { 
+                                            Text(when {
+                                                isThisSegmentLoading -> "Generating..."
+                                                else -> "Listen"
+                                            })
+                                        },
+                                        onClick = {
+                                            showMenuForSegment = null
+                                            if (!isThisSegmentLoading) {
+                                                onSpeak(segment.text, segmentCharacter?.id, message.id, index)
+                                            }
+                                        },
+                                        leadingIcon = {
+                                            if (isThisSegmentLoading) {
+                                                CircularProgressIndicator(
+                                                    modifier = Modifier.size(24.dp),
+                                                    strokeWidth = 2.dp
+                                                )
+                                            } else {
+                                                Icon(Icons.Default.VolumeUp, contentDescription = null)
+                                            }
+                                        },
+                                        enabled = !isThisSegmentLoading
+                                    )
+                                }
                             }
                             
                             // Copy segment text

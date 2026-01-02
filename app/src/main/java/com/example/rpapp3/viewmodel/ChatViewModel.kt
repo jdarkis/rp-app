@@ -20,9 +20,12 @@ import com.example.rpapp3.data.model.Character
 import com.example.rpapp3.data.model.Chat
 import com.example.rpapp3.data.model.ChatMessage
 import com.example.rpapp3.data.model.ElevenLabsTTSModels
+import com.example.rpapp3.data.model.SegmentAudioCache
 import com.example.rpapp3.data.model.World
 import com.example.rpapp3.data.repository.CharacterRepository
 import com.example.rpapp3.data.repository.ChatRepository
+import com.example.rpapp3.data.repository.MediaStorageService
+import com.example.rpapp3.data.repository.SegmentAudioRepository
 import com.example.rpapp3.data.repository.SettingsRepository
 import com.example.rpapp3.data.repository.WorldRepository
 import com.google.ai.client.generativeai.GenerativeModel
@@ -56,6 +59,11 @@ class ChatViewModel : ViewModel() {
     private val characterRepository = CharacterRepository()
     private val chatRepository = ChatRepository()
     private val settingsRepository = SettingsRepository()
+    private val segmentAudioRepository = SegmentAudioRepository()
+    private val mediaStorageService = MediaStorageService()
+    
+    // Application context for media uploads
+    private var appContext: Context? = null
     
     // State
     private val _messages = mutableStateListOf<ChatMessage>()
@@ -87,6 +95,10 @@ class ChatViewModel : ViewModel() {
     private val _systemPrompt = MutableStateFlow<String?>(null)
     val systemPrompt: StateFlow<String?> = _systemPrompt
     
+    // Cached audio URLs for current message (segmentIndex -> audioUrl)
+    private val _cachedAudioUrls = MutableStateFlow<Map<String, Map<Int, String>>>(emptyMap())
+    val cachedAudioUrls: StateFlow<Map<String, Map<Int, String>>> = _cachedAudioUrls
+    
     private var generativeModel: GenerativeModel? = null
     private var chatSession: com.google.ai.client.generativeai.Chat? = null
     
@@ -95,6 +107,7 @@ class ChatViewModel : ViewModel() {
      */
     fun initializeWithContext(context: Context) {
         if (apiKeyManager == null) {
+            appContext = context.applicationContext
             apiKeyManager = ApiKeyManager.getInstance(context)
             chatSettingsManager = ChatSettingsManager.getInstance(context)
             elevenLabsService = ElevenLabsService.getInstance(context)
@@ -815,6 +828,44 @@ class ChatViewModel : ViewModel() {
         }
     }
     
+    fun duplicateChat(chatId: String, onSuccess: () -> Unit, onError: (String) -> Unit) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            chatRepository.duplicateChat(chatId)
+                .onSuccess {
+                    _isLoading.value = false
+                    onSuccess()
+                }
+                .onFailure { e ->
+                    _isLoading.value = false
+                    onError(e.message ?: "Failed to duplicate chat")
+                }
+        }
+    }
+    
+    fun updateChatCharacters(
+        chatId: String,
+        characterIds: List<String>,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        viewModelScope.launch {
+            chatRepository.updateChatCharacters(chatId, characterIds)
+                .onSuccess {
+                    // Update local state if this is the current chat
+                    _currentChat.value?.let { chat ->
+                        if (chat.id == chatId) {
+                            _currentChat.value = chat.copy(characterIds = characterIds)
+                        }
+                    }
+                    onSuccess()
+                }
+                .onFailure { e ->
+                    onError(e.message ?: "Failed to update chat characters")
+                }
+        }
+    }
+    
     fun clearError() {
         _error.value = null
     }
@@ -999,6 +1050,36 @@ class ChatViewModel : ViewModel() {
     }
     
     /**
+     * Speak text directly using TTS with caching support.
+     * Generates audio, plays it, and uploads to Cloudinary for future playback.
+     */
+    fun speakTextWithCaching(
+        text: String,
+        characterId: String? = null,
+        messageId: String,
+        segmentIndex: Int
+    ) {
+        Log.d("ChatViewModel", "speakTextWithCaching called: messageId=$messageId, segment=$segmentIndex")
+        
+        viewModelScope.launch {
+            try {
+                val segment = SpeakableSegment(text, characterId)
+                val (audioData, segmentId) = generateAudioForSegment(
+                    segment = segment,
+                    messageId = messageId,
+                    segmentIndex = segmentIndex
+                )
+                
+                if (audioData != null) {
+                    _ttsManager?.playFromBytes(audioData, "${messageId}_$segmentIndex")
+                }
+            } catch (e: Exception) {
+                Log.e("ChatViewModel", "Exception in speakTextWithCaching: ${e.message}", e)
+            }
+        }
+    }
+    
+    /**
      * Stop any currently playing TTS
      */
     fun stopSpeaking() {
@@ -1117,9 +1198,14 @@ class ChatViewModel : ViewModel() {
     }
     
     /**
-     * Generate audio for a segment and return the audio data and segment ID
+     * Generate audio for a segment and return the audio data and segment ID.
+     * Optionally uploads to Cloudinary and caches the URL if messageId and segmentIndex are provided.
      */
-    private suspend fun generateAudioForSegment(segment: SpeakableSegment): Pair<ByteArray?, String> {
+    private suspend fun generateAudioForSegment(
+        segment: SpeakableSegment,
+        messageId: String? = null,
+        segmentIndex: Int? = null
+    ): Pair<ByteArray?, String> {
         try {
             val currentSettings = chatSettingsManager?.getCurrentSettings() 
                 ?: return Pair(null, "")
@@ -1167,7 +1253,51 @@ class ChatViewModel : ViewModel() {
             ) ?: return Pair(null, segmentId)
             
             return result.fold(
-                onSuccess = { audioData -> Pair(audioData, segmentId) },
+                onSuccess = { audioData ->
+                    // Upload to Cloudinary and cache if message info provided
+                    if (messageId != null && segmentIndex != null && appContext != null) {
+                        val chatId = _currentChat.value?.id
+                        if (chatId != null) {
+                            viewModelScope.launch {
+                                try {
+                                    // Upload to Cloudinary
+                                    val uploadResult = mediaStorageService.uploadAudioBytes(
+                                        context = appContext!!,
+                                        chatId = chatId,
+                                        messageId = messageId,
+                                        segmentIndex = segmentIndex,
+                                        audioBytes = audioData
+                                    )
+                                    
+                                    uploadResult.onSuccess { audioUrl ->
+                                        // Save URL to Firestore
+                                        segmentAudioRepository.saveAudioUrl(
+                                            chatId = chatId,
+                                            messageId = messageId,
+                                            segmentIndex = segmentIndex,
+                                            audioUrl = audioUrl,
+                                            textHash = cleanText.hashCode()
+                                        )
+                                        
+                                        // Update local cache state
+                                        val currentCache = _cachedAudioUrls.value.toMutableMap()
+                                        val messageCache = currentCache[messageId]?.toMutableMap() ?: mutableMapOf()
+                                        messageCache[segmentIndex] = audioUrl
+                                        currentCache[messageId] = messageCache
+                                        _cachedAudioUrls.value = currentCache
+                                        
+                                        Log.d("ChatViewModel", "Audio cached for message=$messageId, segment=$segmentIndex")
+                                    }.onFailure { e ->
+                                        Log.e("ChatViewModel", "Failed to upload audio: ${e.message}")
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e("ChatViewModel", "Error caching audio: ${e.message}")
+                                }
+                            }
+                        }
+                    }
+                    Pair(audioData, segmentId)
+                },
                 onFailure = { e ->
                     Log.e("ChatViewModel", "TTS generation failed: ${e.message}", e)
                     Pair(null, segmentId)
@@ -1177,6 +1307,48 @@ class ChatViewModel : ViewModel() {
         } catch (e: Exception) {
             Log.e("ChatViewModel", "Exception generating audio: ${e.message}", e)
             return Pair(null, "")
+        }
+    }
+    
+    /**
+     * Play cached audio from URL
+     */
+    fun playCachedAudio(audioUrl: String, segmentId: String) {
+        _ttsManager?.playFromUrl(audioUrl, segmentId)
+    }
+    
+    /**
+     * Get cached audio URL for a segment if available
+     */
+    fun getCachedAudioUrl(messageId: String, segmentIndex: Int): String? {
+        return _cachedAudioUrls.value[messageId]?.get(segmentIndex)
+    }
+    
+    /**
+     * Get all cached audio URLs for a message (used by UI)
+     */
+    fun getCachedAudioUrlsForMessage(messageId: String): Map<Int, String> {
+        return _cachedAudioUrls.value[messageId] ?: emptyMap()
+    }
+    
+    /**
+     * Load cached audio URLs for all messages in the current chat
+     */
+    fun loadCachedAudioUrlsForMessage(messageId: String) {
+        val chatId = _currentChat.value?.id ?: return
+        
+        viewModelScope.launch {
+            try {
+                val cachedUrls = segmentAudioRepository.getAudioUrlsForMessage(chatId, messageId)
+                if (cachedUrls.isNotEmpty()) {
+                    val currentCache = _cachedAudioUrls.value.toMutableMap()
+                    currentCache[messageId] = cachedUrls
+                    _cachedAudioUrls.value = currentCache
+                    Log.d("ChatViewModel", "Loaded ${cachedUrls.size} cached audio URLs for message $messageId")
+                }
+            } catch (e: Exception) {
+                Log.e("ChatViewModel", "Error loading cached audio URLs: ${e.message}")
+            }
         }
     }
     

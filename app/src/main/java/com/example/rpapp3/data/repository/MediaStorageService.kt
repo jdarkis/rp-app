@@ -163,6 +163,81 @@ class MediaStorageService {
     }
     
     /**
+     * Upload TTS audio bytes to Cloudinary
+     * @param chatId The chat ID for organizing audio files
+     * @param messageId The message ID
+     * @param segmentIndex The segment index within the message
+     * @param audioBytes The audio data as bytes (typically MP3 from ElevenLabs)
+     * @return URL of the uploaded audio file
+     */
+    suspend fun uploadAudioBytes(
+        context: Context,
+        chatId: String,
+        messageId: String,
+        segmentIndex: Int,
+        audioBytes: ByteArray
+    ): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            if (!CloudinaryConfig.isConfigured()) {
+                return@withContext Result.failure(Exception("Cloudinary is not configured"))
+            }
+            
+            ensureInitialized(context)
+            
+            // Write bytes to temp file (Cloudinary SDK needs a file URI)
+            val tempFile = java.io.File(context.cacheDir, "tts_audio_${messageId}_${segmentIndex}.mp3")
+            tempFile.writeBytes(audioBytes)
+            val tempUri = Uri.fromFile(tempFile)
+            
+            val publicId = "audio/${chatId}/${messageId}_${segmentIndex}"
+            
+            Log.d(TAG, "Uploading audio to publicId: $publicId (${audioBytes.size} bytes)")
+            
+            suspendCancellableCoroutine { continuation ->
+                MediaManager.get().upload(tempUri)
+                    .unsigned(CloudinaryConfig.UPLOAD_PRESET)
+                    .option("public_id", publicId)
+                    .option("resource_type", "video") // Cloudinary uses "video" for audio
+                    .callback(object : UploadCallback {
+                        override fun onStart(requestId: String) {
+                            Log.d(TAG, "Audio upload started: $requestId")
+                        }
+                        
+                        override fun onProgress(requestId: String, bytes: Long, totalBytes: Long) {
+                            // Silent progress
+                        }
+                        
+                        override fun onSuccess(requestId: String, resultData: Map<*, *>) {
+                            val secureUrl = resultData["secure_url"] as? String
+                            Log.d(TAG, "Audio upload successful! URL: $secureUrl")
+                            // Clean up temp file
+                            tempFile.delete()
+                            if (secureUrl != null) {
+                                continuation.resume(Result.success(secureUrl))
+                            } else {
+                                continuation.resume(Result.failure(Exception("No URL in response")))
+                            }
+                        }
+                        
+                        override fun onError(requestId: String, error: ErrorInfo) {
+                            Log.e(TAG, "Audio upload failed: ${error.description}")
+                            tempFile.delete()
+                            continuation.resume(Result.failure(Exception(error.description)))
+                        }
+                        
+                        override fun onReschedule(requestId: String, error: ErrorInfo) {
+                            Log.w(TAG, "Audio upload rescheduled: ${error.description}")
+                        }
+                    })
+                    .dispatch()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to upload audio: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+    
+    /**
      * Delete a media file by URL (Cloudinary doesn't support deletion with unsigned uploads)
      * For now, this is a no-op since unsigned uploads can't delete
      */
