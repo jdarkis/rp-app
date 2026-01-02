@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -778,12 +779,14 @@ fun MessageBubble(
                                 onLongClick = { showMenuForSegment = index }
                             )
                         ) {
-                            Text(
-                                text = segment.text,
-                                color = textColor,
-                                modifier = Modifier.padding(12.dp),
-                                style = MaterialTheme.typography.bodyMedium
-                            )
+                            SelectionContainer {
+                                Text(
+                                    text = segment.text,
+                                    color = textColor,
+                                    modifier = Modifier.padding(12.dp),
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
                         }
                         
                         // Dropdown menu - TTS on all segments, other actions on last segment only
