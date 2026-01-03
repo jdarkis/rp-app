@@ -99,6 +99,37 @@ fun PrivateChatScreen(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
                 contentPadding = PaddingValues(vertical = 8.dp)
             ) {
+                // Load More button at top (when there are older messages)
+                if (viewModel.hasMoreMessages) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (viewModel.isLoadingMore) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(24.dp),
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                TextButton(
+                                    onClick = { viewModel.loadMoreMessages() }
+                                ) {
+                                    Icon(
+                                        Icons.Default.KeyboardArrowUp,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Load older messages")
+                                }
+                            }
+                        }
+                    }
+                }
+                
                 items(messages, key = { it.id }) { message ->
                     MessageBubble(
                         message = message,

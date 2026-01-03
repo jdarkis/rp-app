@@ -5,9 +5,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.rpapp3.data.model.VersionHistory
 import com.example.rpapp3.data.model.World
 import com.example.rpapp3.data.repository.CharacterRepository
 import com.example.rpapp3.data.repository.ChatRepository
+import com.example.rpapp3.data.repository.VersionHistoryRepository
 import com.example.rpapp3.data.repository.WorldRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,6 +20,7 @@ class WorldViewModel : ViewModel() {
     private val worldRepository = WorldRepository()
     private val characterRepository = CharacterRepository()
     private val chatRepository = ChatRepository()
+    private val versionHistoryRepository = VersionHistoryRepository()
     
     private val _worlds = MutableStateFlow<List<World>>(emptyList())
     val worlds: StateFlow<List<World>> = _worlds
@@ -30,6 +33,10 @@ class WorldViewModel : ViewModel() {
     
     var error by mutableStateOf<String?>(null)
         private set
+    
+    // Version history state
+    private val _worldVersions = MutableStateFlow<List<VersionHistory>>(emptyList())
+    val worldVersions: StateFlow<List<VersionHistory>> = _worldVersions
     
     init {
         loadWorlds()
@@ -51,6 +58,8 @@ class WorldViewModel : ViewModel() {
         viewModelScope.launch {
             isLoading = true
             _currentWorld.value = worldRepository.getWorld(worldId)
+            // Also load version history
+            _worldVersions.value = versionHistoryRepository.getWorldVersionsOnce(worldId)
             isLoading = false
         }
     }
@@ -154,6 +163,40 @@ class WorldViewModel : ViewModel() {
     
     fun clearError() {
         error = null
+    }
+    
+    /**
+     * Restore world from a version history snapshot
+     */
+    fun restoreWorldFromVersion(
+        version: VersionHistory,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val currentWorld = _currentWorld.value ?: return
+        
+        viewModelScope.launch {
+            isLoading = true
+            try {
+                val restoredWorld = currentWorld.copy(
+                    description = version.worldDescription ?: currentWorld.description
+                )
+                
+                worldRepository.updateWorld(restoredWorld)
+                    .onSuccess {
+                        _currentWorld.value = restoredWorld
+                        isLoading = false
+                        onSuccess()
+                    }
+                    .onFailure { e ->
+                        isLoading = false
+                        onError(e.message ?: "Failed to restore version")
+                    }
+            } catch (e: Exception) {
+                isLoading = false
+                onError(e.message ?: "Failed to restore version")
+            }
+        }
     }
     
     fun duplicateWorld(

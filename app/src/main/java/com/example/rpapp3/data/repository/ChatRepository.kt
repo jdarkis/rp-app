@@ -157,6 +157,102 @@ class ChatRepository {
     }
     
     /**
+     * Get the most recent messages for initial UI display (paginated loading)
+     * Returns messages in ascending order (oldest first) for display
+     * @param chatId The chat to load messages from
+     * @param limit Maximum number of messages to load
+     * @return Pair of (messages, hasMoreMessages)
+     */
+    suspend fun getMessagesPagedInitial(chatId: String, limit: Int = 50): Pair<List<ChatMessage>, Boolean> {
+        return try {
+            // Fetch limit + 1 to check if there are more messages
+            val docs = chatsCollection
+                .document(chatId)
+                .collection("messages")
+                .orderBy("timestamp", Query.Direction.DESCENDING)
+                .limit(limit.toLong() + 1)
+                .get()
+                .await()
+            
+            val messages = docs.documents.mapNotNull { doc ->
+                doc.data?.let { ChatMessage.fromMap(it) }
+            }
+            
+            // Check if we got more than limit (meaning there are older messages)
+            val hasMore = messages.size > limit
+            
+            // Take only the limit and reverse to get oldest-first order
+            val result = messages.take(limit).reversed()
+            
+            Pair(result, hasMore)
+        } catch (e: Exception) {
+            Pair(emptyList(), false)
+        }
+    }
+    
+    /**
+     * Load older messages before a given timestamp (for "load more" functionality)
+     * @param chatId The chat to load messages from
+     * @param beforeTimestamp Load messages older than this timestamp
+     * @param limit Maximum number of messages to load
+     * @return Pair of (messages, hasMoreMessages)
+     */
+    suspend fun getMessagesOlder(chatId: String, beforeTimestamp: Long, limit: Int = 50): Pair<List<ChatMessage>, Boolean> {
+        return try {
+            // Fetch limit + 1 to check if there are more messages
+            val docs = chatsCollection
+                .document(chatId)
+                .collection("messages")
+                .orderBy("timestamp", Query.Direction.DESCENDING)
+                .whereLessThan("timestamp", beforeTimestamp)
+                .limit(limit.toLong() + 1)
+                .get()
+                .await()
+            
+            val messages = docs.documents.mapNotNull { doc ->
+                doc.data?.let { ChatMessage.fromMap(it) }
+            }
+            
+            val hasMore = messages.size > limit
+            val result = messages.take(limit).reversed()
+            
+            Pair(result, hasMore)
+        } catch (e: Exception) {
+            Pair(emptyList(), false)
+        }
+    }
+    
+    /**
+     * Observe new messages added after a given timestamp (for real-time updates)
+     * Used to get new messages while chat is open without reloading all messages
+     */
+    fun observeNewMessages(chatId: String, afterTimestamp: Long): Flow<ChatMessage> = callbackFlow {
+        val listener = chatsCollection
+            .document(chatId)
+            .collection("messages")
+            .whereGreaterThan("timestamp", afterTimestamp)
+            .orderBy("timestamp", Query.Direction.ASCENDING)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    close(error)
+                    return@addSnapshotListener
+                }
+                
+                // Only emit newly added documents
+                snapshot?.documentChanges?.forEach { change ->
+                    if (change.type == com.google.firebase.firestore.DocumentChange.Type.ADDED) {
+                        change.document.data?.let { data ->
+                            val message = ChatMessage.fromMap(data)
+                            trySend(message)
+                        }
+                    }
+                }
+            }
+        
+        awaitClose { listener.remove() }
+    }
+    
+    /**
      * Add a message to a chat
      */
     suspend fun addMessage(message: ChatMessage): Result<ChatMessage> {

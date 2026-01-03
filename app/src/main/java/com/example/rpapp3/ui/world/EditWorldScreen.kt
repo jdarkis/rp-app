@@ -8,12 +8,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.rpapp3.ui.components.VersionHistoryDialog
 import com.example.rpapp3.viewmodel.WorldViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -32,6 +34,7 @@ fun EditWorldScreen(
     var writingStyle by remember { mutableStateOf("") }
     var systemInstructions by remember { mutableStateOf("") }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showVersionHistoryDialog by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     
     // Focus states for expandable text fields
@@ -57,6 +60,7 @@ fun EditWorldScreen(
     )
     
     val snackbarHostState = remember { SnackbarHostState() }
+    val worldVersions by viewModel.worldVersions.collectAsState()
     
     // Load world data
     LaunchedEffect(worldId) {
@@ -90,6 +94,16 @@ fun EditWorldScreen(
                     }
                 },
                 actions = {
+                    // Version History button
+                    if (worldVersions.isNotEmpty()) {
+                        IconButton(onClick = { showVersionHistoryDialog = true }) {
+                            Icon(
+                                Icons.Default.History,
+                                contentDescription = "Version History",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
                     IconButton(onClick = { showDeleteDialog = true }) {
                         Icon(
                             Icons.Default.Delete,
@@ -218,6 +232,25 @@ fun EditWorldScreen(
                     Text("Cancel")
                 }
             }
+        )
+    }
+    
+    // Version History Dialog
+    if (showVersionHistoryDialog) {
+        VersionHistoryDialog(
+            versions = worldVersions,
+            entityType = "world",
+            onRestore = { version ->
+                viewModel.restoreWorldFromVersion(
+                    version = version,
+                    onSuccess = {
+                        showVersionHistoryDialog = false
+                        viewModel.loadWorld(worldId)
+                    },
+                    onError = { errorMessage = it }
+                )
+            },
+            onDismiss = { showVersionHistoryDialog = false }
         )
     }
 }

@@ -40,6 +40,7 @@ import com.example.rpapp3.data.model.ElevenLabsTTSModels
 import com.example.rpapp3.data.model.Voice
 import com.example.rpapp3.viewmodel.ChatViewModel
 import com.example.rpapp3.ui.components.SUPPORTED_LANGUAGES
+import com.example.rpapp3.data.SummaryDetailLevel
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -924,9 +925,95 @@ fun ChatSettingsScreen(
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
                     
+                    // Detail Level Selector
+                    var selectedDetailLevel by remember { mutableStateOf(SummaryDetailLevel.MEDIUM) }
+                    var detailLevelExpanded by remember { mutableStateOf(false) }
+                    
+                    Text(
+                        text = "Summary Detail Level",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                    
+                    ExposedDropdownMenuBox(
+                        expanded = detailLevelExpanded,
+                        onExpandedChange = { detailLevelExpanded = !detailLevelExpanded },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        OutlinedTextField(
+                            value = when (selectedDetailLevel) {
+                                SummaryDetailLevel.LOW -> "Low - Major events only"
+                                SummaryDetailLevel.MEDIUM -> "Medium - Balanced"
+                                SummaryDetailLevel.HIGH -> "High - Full detail"
+                            },
+                            onValueChange = {},
+                            readOnly = true,
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = detailLevelExpanded) },
+                            modifier = Modifier
+                                .menuAnchor()
+                                .fillMaxWidth()
+                        )
+                        ExposedDropdownMenu(
+                            expanded = detailLevelExpanded,
+                            onDismissRequest = { detailLevelExpanded = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { 
+                                    Column {
+                                        Text("Low")
+                                        Text(
+                                            "Major events only",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                },
+                                onClick = {
+                                    selectedDetailLevel = SummaryDetailLevel.LOW
+                                    detailLevelExpanded = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { 
+                                    Column {
+                                        Text("Medium")
+                                        Text(
+                                            "Balanced summary",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                },
+                                onClick = {
+                                    selectedDetailLevel = SummaryDetailLevel.MEDIUM
+                                    detailLevelExpanded = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { 
+                                    Column {
+                                        Text("High")
+                                        Text(
+                                            "Full detail, all events",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                },
+                                onClick = {
+                                    selectedDetailLevel = SummaryDetailLevel.HIGH
+                                    detailLevelExpanded = false
+                                }
+                            )
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
                     // Summarize Story Button
                     Button(
-                        onClick = { chatViewModel.generateStorySummary() },
+                        onClick = { chatViewModel.generateStorySummary(selectedDetailLevel) },
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !isSummarizing
                     ) {

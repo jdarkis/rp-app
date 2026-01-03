@@ -33,6 +33,7 @@ import com.example.rpapp3.ui.components.AIEnhancedTextField
 import com.example.rpapp3.ui.components.GenderSelector
 import com.example.rpapp3.ui.components.LanguageSelector
 import com.example.rpapp3.ui.components.VoiceSelector
+import com.example.rpapp3.ui.components.VersionHistoryDialog
 import com.example.rpapp3.viewmodel.CharacterViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -60,6 +61,7 @@ fun EditCharacterScreen(
     var newVideoUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showSelectFromPhotosDialog by remember { mutableStateOf(false) }
+    var showVersionHistoryDialog by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     
     // Voice settings
@@ -70,6 +72,7 @@ fun EditCharacterScreen(
     val voices by viewModel.voices.collectAsState()
     val voicesLoading by viewModel.voicesLoading.collectAsState()
     val ttsManager by viewModel.ttsManager.collectAsState()
+    val characterVersions by viewModel.characterVersions.collectAsState()
     
     val snackbarHostState = remember { SnackbarHostState() }
     
@@ -202,6 +205,16 @@ fun EditCharacterScreen(
                     }
                 },
                 actions = {
+                    // Version History button
+                    if (characterVersions.isNotEmpty()) {
+                        IconButton(onClick = { showVersionHistoryDialog = true }) {
+                            Icon(
+                                Icons.Default.History,
+                                contentDescription = "Version History",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
                     IconButton(onClick = { showDeleteDialog = true }) {
                         Icon(
                             Icons.Default.Delete,
@@ -681,6 +694,25 @@ fun EditCharacterScreen(
                 }
             )
         }
+    }
+    
+    // Version History Dialog
+    if (showVersionHistoryDialog) {
+        VersionHistoryDialog(
+            versions = characterVersions,
+            entityType = "character",
+            onRestore = { version ->
+                viewModel.restoreCharacterFromVersion(
+                    version = version,
+                    onSuccess = {
+                        showVersionHistoryDialog = false
+                        viewModel.loadCharacter(characterId)
+                    },
+                    onError = { errorMessage = it }
+                )
+            },
+            onDismiss = { showVersionHistoryDialog = false }
+        )
     }
 }
 

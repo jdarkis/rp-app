@@ -17,6 +17,7 @@ import com.example.rpapp3.data.SafetyThreshold
 import com.example.rpapp3.data.TTSManager
 import com.example.rpapp3.data.TTSPlaybackState
 import com.example.rpapp3.data.StorySummarizerService
+import com.example.rpapp3.data.SummaryDetailLevel
 import com.example.rpapp3.data.SummaryResult
 import com.example.rpapp3.data.model.Character
 import com.example.rpapp3.data.model.Chat
@@ -31,6 +32,7 @@ import com.example.rpapp3.data.repository.ChatRepository
 import com.example.rpapp3.data.repository.MediaStorageService
 import com.example.rpapp3.data.repository.SegmentAudioRepository
 import com.example.rpapp3.data.repository.SettingsRepository
+import com.example.rpapp3.data.repository.VersionHistoryRepository
 import com.example.rpapp3.data.repository.WorldRepository
 import com.google.ai.client.generativeai.GenerativeModel
 import com.google.ai.client.generativeai.type.BlockThreshold
@@ -65,6 +67,7 @@ class ChatViewModel : ViewModel() {
     private val settingsRepository = SettingsRepository()
     private val segmentAudioRepository = SegmentAudioRepository()
     private val mediaStorageService = MediaStorageService()
+    private val versionHistoryRepository = VersionHistoryRepository()
     
     // Application context for media uploads
     private var appContext: Context? = null
@@ -111,6 +114,16 @@ class ChatViewModel : ViewModel() {
     val isSummarizing: StateFlow<Boolean> = _isSummarizing
     private val _summaryError = MutableStateFlow<String?>(null)
     val summaryError: StateFlow<String?> = _summaryError
+    
+    // Pagination state for chat messages
+    private val _hasMoreMessages = mutableStateOf(false)
+    val hasMoreMessages: Boolean get() = _hasMoreMessages.value
+    private val _isLoadingMore = mutableStateOf(false)
+    val isLoadingMore: Boolean get() = _isLoadingMore.value
+    private var oldestLoadedTimestamp: Long = Long.MAX_VALUE
+    
+    // Full message history for AI context (full history, not paginated)
+    private val _fullMessageHistory = mutableStateListOf<ChatMessage>()
     
     private var generativeModel: GenerativeModel? = null
     private var chatSession: com.google.ai.client.generativeai.Chat? = null
@@ -198,6 +211,9 @@ class ChatViewModel : ViewModel() {
         viewModelScope.launch {
             _isLoading.value = true
             _messages.clear()
+            _fullMessageHistory.clear()
+            _hasMoreMessages.value = false
+            oldestLoadedTimestamp = Long.MAX_VALUE
             
             // Load world
             _world.value = worldRepository.getWorld(worldId)
@@ -205,12 +221,25 @@ class ChatViewModel : ViewModel() {
             // Load chat
             _currentChat.value = chatRepository.getChat(chatId)
             
-            // Load messages BEFORE initializing AI so history is available
+            // Load FULL message history for AI context (all messages)
             try {
-                val existingMessages = chatRepository.getMessagesOnce(chatId)
-                _messages.addAll(existingMessages)
+                val allMessages = chatRepository.getMessagesOnce(chatId)
+                _fullMessageHistory.addAll(allMessages)
             } catch (e: Exception) {
-                // Ignore errors loading messages - they'll be loaded via Flow below
+                // Ignore errors loading full history
+            }
+            
+            // Load PAGINATED messages for UI display (only recent messages)
+            try {
+                val (recentMessages, hasMore) = chatRepository.getMessagesPagedInitial(chatId, 20)
+                _messages.addAll(recentMessages)
+                _hasMoreMessages.value = hasMore
+                if (recentMessages.isNotEmpty()) {
+                    oldestLoadedTimestamp = recentMessages.first().timestamp
+                }
+            } catch (e: Exception) {
+                // Fallback: use full history if pagination fails
+                _messages.addAll(_fullMessageHistory)
             }
             
             // Load characters
@@ -222,7 +251,7 @@ class ChatViewModel : ViewModel() {
                 // Get current API key
                 currentApiKey = apiKeyManager?.getCurrentApiKey()
                 
-                // Initialize AI model with context
+                // Initialize AI model with FULL history context
                 initializeAI()
             }
             
@@ -237,15 +266,55 @@ class ChatViewModel : ViewModel() {
             // Set loading to false after initial setup
             _isLoading.value = false
             
-            // Load messages in a separate coroutine (this flow runs indefinitely)
-            chatRepository.getMessages(chatId)
+            // Listen for NEW messages only (real-time updates for new messages)
+            val latestTimestamp = _fullMessageHistory.lastOrNull()?.timestamp ?: System.currentTimeMillis()
+            chatRepository.observeNewMessages(chatId, latestTimestamp)
                 .catch { e ->
                     _error.value = e.message
                 }
-                .collect { messageList ->
-                    _messages.clear()
-                    _messages.addAll(messageList)
+                .collect { newMessage ->
+                    // Check if message is not already in the list (avoid duplicates)
+                    if (_messages.none { it.id == newMessage.id }) {
+                        _messages.add(newMessage)
+                    }
+                    // Also add to full history for AI context
+                    if (_fullMessageHistory.none { it.id == newMessage.id }) {
+                        _fullMessageHistory.add(newMessage)
+                    }
                 }
+        }
+    }
+    
+    /**
+     * Load more older messages for UI display (pagination)
+     */
+    fun loadMoreMessages() {
+        if (_isLoadingMore.value || !_hasMoreMessages.value) return
+        
+        val chatId = _currentChat.value?.id ?: return
+        
+        viewModelScope.launch {
+            _isLoadingMore.value = true
+            
+            try {
+                val (olderMessages, hasMore) = chatRepository.getMessagesOlder(
+                    chatId = chatId,
+                    beforeTimestamp = oldestLoadedTimestamp,
+                    limit = 50
+                )
+                
+                if (olderMessages.isNotEmpty()) {
+                    // Prepend older messages to the UI list
+                    _messages.addAll(0, olderMessages)
+                    oldestLoadedTimestamp = olderMessages.first().timestamp
+                }
+                
+                _hasMoreMessages.value = hasMore
+            } catch (e: Exception) {
+                _error.value = "Failed to load more messages: ${e.message}"
+            } finally {
+                _isLoadingMore.value = false
+            }
         }
     }
     
@@ -299,8 +368,8 @@ class ChatViewModel : ViewModel() {
             safetySettings = safetySettings
         )
         
-        // Start chat with existing messages as history
-        val history = _messages.map { message ->
+        // Start chat with FULL message history (not paginated UI messages)
+        val history = _fullMessageHistory.map { message ->
             content(role = if (message.isUser) "user" else "model") {
                 text(message.text)
             }
@@ -549,6 +618,7 @@ class ChatViewModel : ViewModel() {
             isUser = true
         )
         _messages.add(userChatMessage)
+        _fullMessageHistory.add(userChatMessage)
         
         _isLoading.value = true
         _error.value = null
@@ -606,10 +676,10 @@ class ChatViewModel : ViewModel() {
                 return
             }
             
-            // Refresh chat session history with current messages before sending
-            // This ensures any messages loaded after initial AI setup are included
+            // Refresh chat session history with FULL message history before sending
+            // This ensures AI always has complete context regardless of UI pagination
             if (generativeModel != null) {
-                val history = _messages.map { message ->
+                val history = _fullMessageHistory.map { message ->
                     content(role = if (message.isUser) "user" else "model") {
                         text(message.text)
                     }
@@ -675,8 +745,9 @@ class ChatViewModel : ViewModel() {
                     return
                 }
                 
-                // Save final message to Firestore
+                // Save final message to Firestore and add to full history
                 val finalMessage = _messages[messageIndex]
+                _fullMessageHistory.add(finalMessage)
                 chatRepository.addMessage(finalMessage)
             } else {
                 // Non-streaming mode (original behavior)
@@ -702,6 +773,7 @@ class ChatViewModel : ViewModel() {
                 
                 parsedMessages.forEach { aiMessage ->
                     _messages.add(aiMessage)
+                    _fullMessageHistory.add(aiMessage)
                     // Save AI message to Firestore
                     chatRepository.addMessage(aiMessage)
                 }
@@ -929,7 +1001,7 @@ class ChatViewModel : ViewModel() {
     /**
      * Generate a story summary and proposed character/world updates
      */
-    fun generateStorySummary() {
+    fun generateStorySummary(detailLevel: SummaryDetailLevel = SummaryDetailLevel.MEDIUM) {
         if (_isSummarizing.value) return
         
         viewModelScope.launch {
@@ -941,7 +1013,7 @@ class ChatViewModel : ViewModel() {
             val characters = _characters.value
             val world = _world.value
             
-            when (val result = storySummarizerService?.summarizeStory(messages, characters, world)) {
+            when (val result = storySummarizerService?.summarizeStory(messages, characters, world, detailLevel)) {
                 is SummaryResult.Success -> {
                     _summaryProposal.value = result.proposal
                 }
@@ -974,24 +1046,29 @@ class ChatViewModel : ViewModel() {
                     val character = _characters.value.find { it.id == charUpdate.characterId } ?: return@forEach
                     
                     var updatedCharacter = character
+                    var hasChanges = false
                     
                     // Apply background if selected
                     if (selectedUpdates.characterBackgrounds[charUpdate.characterId] == true && charUpdate.backgroundNew != null) {
                         updatedCharacter = updatedCharacter.copy(description = charUpdate.backgroundNew)
+                        hasChanges = true
                     }
                     
                     // Apply appearance if selected
                     if (selectedUpdates.characterAppearances[charUpdate.characterId] == true && charUpdate.appearanceNew != null) {
                         updatedCharacter = updatedCharacter.copy(appearance = charUpdate.appearanceNew)
+                        hasChanges = true
                     }
                     
                     // Apply personality if selected
                     if (selectedUpdates.characterPersonalities[charUpdate.characterId] == true && charUpdate.personalityNew != null) {
                         updatedCharacter = updatedCharacter.copy(personality = charUpdate.personalityNew)
+                        hasChanges = true
                     }
                     
-                    // Only update if something changed
-                    if (updatedCharacter != character) {
+                    // Save version history before updating, then apply changes
+                    if (hasChanges) {
+                        versionHistoryRepository.saveCharacterVersion(character, "summarizer")
                         characterRepository.updateCharacter(updatedCharacter)
                     }
                 }
@@ -1000,6 +1077,8 @@ class ChatViewModel : ViewModel() {
                 if (selectedUpdates.worldDescription && proposal.worldUpdateProposal?.descriptionNew != null) {
                     val world = _world.value
                     if (world != null) {
+                        // Save version history before updating
+                        versionHistoryRepository.saveWorldVersion(world, "summarizer")
                         val updatedWorld = world.copy(description = proposal.worldUpdateProposal.descriptionNew)
                         worldRepository.updateWorld(updatedWorld)
                         _world.value = updatedWorld

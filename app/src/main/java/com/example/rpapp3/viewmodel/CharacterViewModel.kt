@@ -10,9 +10,11 @@ import androidx.lifecycle.viewModelScope
 import com.example.rpapp3.data.ElevenLabsService
 import com.example.rpapp3.data.TTSManager
 import com.example.rpapp3.data.model.Character
+import com.example.rpapp3.data.model.VersionHistory
 import com.example.rpapp3.data.model.Voice
 import com.example.rpapp3.data.repository.CharacterRepository
 import com.example.rpapp3.data.repository.MediaStorageService
+import com.example.rpapp3.data.repository.VersionHistoryRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
@@ -22,6 +24,7 @@ import kotlinx.coroutines.launch
 class CharacterViewModel : ViewModel() {
     private val characterRepository = CharacterRepository()
     private val mediaStorageService = MediaStorageService()
+    private val versionHistoryRepository = VersionHistoryRepository()
     
     private var elevenLabsService: ElevenLabsService? = null
     private val _ttsManager = MutableStateFlow<TTSManager?>(null)
@@ -47,6 +50,10 @@ class CharacterViewModel : ViewModel() {
     
     var error by mutableStateOf<String?>(null)
         private set
+    
+    // Version history state
+    private val _characterVersions = MutableStateFlow<List<VersionHistory>>(emptyList())
+    val characterVersions: StateFlow<List<VersionHistory>> = _characterVersions
     
     fun initializeWithContext(context: Context) {
         if (elevenLabsService == null) {
@@ -88,6 +95,8 @@ class CharacterViewModel : ViewModel() {
         viewModelScope.launch {
             isLoading = true
             _currentCharacter.value = characterRepository.getCharacter(characterId)
+            // Also load version history
+            _characterVersions.value = versionHistoryRepository.getCharacterVersionsOnce(characterId)
             isLoading = false
         }
     }
@@ -440,5 +449,41 @@ class CharacterViewModel : ViewModel() {
     
     fun clearError() {
         error = null
+    }
+    
+    /**
+     * Restore character from a version history snapshot
+     */
+    fun restoreCharacterFromVersion(
+        version: VersionHistory,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val currentCharacter = _currentCharacter.value ?: return
+        
+        viewModelScope.launch {
+            isLoading = true
+            try {
+                val restoredCharacter = currentCharacter.copy(
+                    description = version.description ?: currentCharacter.description,
+                    appearance = version.appearance ?: currentCharacter.appearance,
+                    personality = version.personality ?: currentCharacter.personality
+                )
+                
+                characterRepository.updateCharacter(restoredCharacter)
+                    .onSuccess {
+                        _currentCharacter.value = restoredCharacter
+                        isLoading = false
+                        onSuccess()
+                    }
+                    .onFailure { e ->
+                        isLoading = false
+                        onError(e.message ?: "Failed to restore version")
+                    }
+            } catch (e: Exception) {
+                isLoading = false
+                onError(e.message ?: "Failed to restore version")
+            }
+        }
     }
 }

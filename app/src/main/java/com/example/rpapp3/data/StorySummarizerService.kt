@@ -27,6 +27,15 @@ sealed class SummaryResult {
 }
 
 /**
+ * Detail level for story summarization
+ */
+enum class SummaryDetailLevel {
+    LOW,    // Only major events and significant changes
+    MEDIUM, // Balanced summary with important developments
+    HIGH    // Detailed summary including minor events
+}
+
+/**
  * Service for AI-powered story summarization and character/world update proposals.
  * Analyzes chat history to identify character development and story progression.
  */
@@ -49,6 +58,7 @@ class StorySummarizerService(private val context: Context) {
         messages: List<ChatMessage>,
         characters: List<Character>,
         world: World?,
+        detailLevel: SummaryDetailLevel = SummaryDetailLevel.MEDIUM,
         retryCount: Int = 0,
         lastError: String? = null
     ): SummaryResult = withContext(Dispatchers.IO) {
@@ -69,17 +79,24 @@ class StorySummarizerService(private val context: Context) {
             return@withContext SummaryResult.Error("No API key configured")
         }
         
-        val systemPrompt = buildSystemPrompt(characters, world)
+        val systemPrompt = buildSystemPrompt(characters, world, detailLevel)
         val chatContent = buildChatContent(messages)
         
         try {
+            // Adjust max tokens based on detail level
+            val maxTokens = when (detailLevel) {
+                SummaryDetailLevel.LOW -> 8192
+                SummaryDetailLevel.MEDIUM -> 16384
+                SummaryDetailLevel.HIGH -> 65536 // Much higher limit for comprehensive summaries
+            }
+            
             val generativeModel = GenerativeModel(
                 modelName = "gemini-3-flash-preview",
                 apiKey = apiKey,
                 generationConfig = generationConfig {
                     temperature = 0.7f
                     topP = 0.95f
-                    maxOutputTokens = 16384
+                    maxOutputTokens = maxTokens
                     responseMimeType = "application/json"
                 },
                 systemInstruction = content { text(systemPrompt) },
@@ -112,7 +129,7 @@ class StorySummarizerService(private val context: Context) {
             if (shouldRotateKey) {
                 val newKey = apiKeyManager?.rotateToNextKey()
                 if (newKey != null && newKey != apiKey) {
-                    return@withContext summarizeStory(messages, characters, world, retryCount + 1, errorMessage)
+                    return@withContext summarizeStory(messages, characters, world, detailLevel, retryCount + 1, errorMessage)
                 }
                 return@withContext SummaryResult.Error("All API keys exhausted. Error: $errorMessage")
             }
@@ -121,7 +138,7 @@ class StorySummarizerService(private val context: Context) {
         }
     }
     
-    private fun buildSystemPrompt(characters: List<Character>, world: World?): String {
+    private fun buildSystemPrompt(characters: List<Character>, world: World?, detailLevel: SummaryDetailLevel): String {
         return buildString {
             appendLine("You are a story analyst for a roleplay application.")
             appendLine("Your task is to analyze the chat history and provide:")
@@ -129,6 +146,37 @@ class StorySummarizerService(private val context: Context) {
             appendLine("2. Analysis of how each character has developed")
             appendLine("3. Suggested updates to character and world descriptions based on story events")
             appendLine()
+            
+            // Detail level instructions
+            appendLine("=== DETAIL LEVEL: ${detailLevel.name} ===")
+            when (detailLevel) {
+                SummaryDetailLevel.LOW -> {
+                    appendLine("Focus ONLY on MAJOR events and significant turning points.")
+                    appendLine("Ignore minor interactions and small talk.")
+                    appendLine("Summary should be 1-2 paragraphs maximum.")
+                    appendLine("Only propose character/world updates for dramatic changes.")
+                }
+                SummaryDetailLevel.MEDIUM -> {
+                    appendLine("Provide a balanced summary covering important developments.")
+                    appendLine("Include key events and notable character moments.")
+                    appendLine("Summary should be 2-3 paragraphs.")
+                    appendLine("Propose updates for meaningful character or world developments.")
+                }
+                SummaryDetailLevel.HIGH -> {
+                    appendLine("Provide an EXTREMELY COMPREHENSIVE and DETAILED summary with NO LENGTH CONSTRAINTS.")
+                    appendLine("Include EVERY notable fact, event, interaction, and development that occurred.")
+                    appendLine("Document ALL character moments, dialogue exchanges, emotional shifts, and relationship changes.")
+                    appendLine("Capture every piece of world-building, location detail, and environmental description.")
+                    appendLine("Include subtle moments like facial expressions, tone changes, internal thoughts mentioned.")
+                    appendLine("List specific facts: names mentioned, places visited, objects described, actions taken.")
+                    appendLine("Organize chronologically but ensure NOTHING is omitted.")
+                    appendLine("The summary should be AS LONG AS NECESSARY to capture everything - do not summarize or condense.")
+                    appendLine("Think of this as a detailed chronicle or transcript summary, not a brief overview.")
+                    appendLine("Propose updates for ANY character development or world changes, no matter how minor.")
+                }
+            }
+            appendLine()
+            
             appendLine("=== CURRENT CHARACTER DATA ===")
             characters.forEach { char ->
                 appendLine()
@@ -163,10 +211,20 @@ class StorySummarizerService(private val context: Context) {
 }
             """.trimIndent())
             appendLine()
-            appendLine("IMPORTANT RULES:")
-            appendLine("- Only suggest updates if there were SIGNIFICANT changes in the story")
-            appendLine("- Preserve the original style and essential information")
-            appendLine("- ADD new information rather than replacing everything")
+            appendLine("CRITICAL RULES FOR UPDATES:")
+            appendLine("1. PRESERVE ALL ORIGINAL INFORMATION - Never remove or lose existing content")
+            appendLine("2. APPEND new story developments to the existing text, don't replace it")
+            appendLine("3. Start each update by copying the original text, then add new information at the end")
+            appendLine("4. Only MODIFY existing text if the story directly contradicted or changed that specific detail")
+            appendLine("5. Format: '[Original content...] [New additions from story events...]'")
+            appendLine()
+            appendLine("EXAMPLE:")
+            appendLine("- Original: 'A brave knight from the northern kingdom.'")
+            appendLine("- After story events where the knight saved a village:")
+            appendLine("- Updated: 'A brave knight from the northern kingdom. Has since proven their valor by saving the village of Millbrook from bandits.'")
+            appendLine()
+            appendLine("OTHER RULES:")
+            appendLine("- Only suggest updates if there were SIGNIFICANT story developments")
             appendLine("- Set fields to null if no meaningful updates are needed")
             appendLine("- The summary should be 2-4 paragraphs covering key events")
         }

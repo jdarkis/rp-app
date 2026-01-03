@@ -91,7 +91,16 @@ class PrivateChatViewModel : ViewModel() {
     // Display filter settings for UI
     private val _displayFilterSettings = MutableStateFlow(DisplayFilterSettings())
     val displayFilterSettings: StateFlow<DisplayFilterSettings> = _displayFilterSettings
-
+    
+    // Pagination state for chat messages
+    private val _hasMoreMessages = mutableStateOf(false)
+    val hasMoreMessages: Boolean get() = _hasMoreMessages.value
+    private val _isLoadingMore = mutableStateOf(false)
+    val isLoadingMore: Boolean get() = _isLoadingMore.value
+    private var oldestLoadedTimestamp: Long = Long.MAX_VALUE
+    
+    // Full message history for AI context (full history, not paginated)
+    private val _fullMessageHistory = mutableStateListOf<ChatMessage>()
     
     private var generativeModel: GenerativeModel? = null
     private var chatSession: com.google.ai.client.generativeai.Chat? = null
@@ -127,6 +136,9 @@ class PrivateChatViewModel : ViewModel() {
         viewModelScope.launch {
             _isLoading.value = true
             _messages.clear()
+            _fullMessageHistory.clear()
+            _hasMoreMessages.value = false
+            oldestLoadedTimestamp = Long.MAX_VALUE
             
             // Load available world chats for context FIRST (before blocking calls)
             val worldChats = chatRepository.getWorldChatsForContext(worldId)
@@ -147,27 +159,47 @@ class PrivateChatViewModel : ViewModel() {
                 .onSuccess { chat ->
                     _currentChat.value = chat
                     
-                    // Load messages
+                    // Load FULL message history for AI context (all messages)
                     try {
-                        val existingMessages = chatRepository.getMessagesOnce(chat.id)
-                        _messages.addAll(existingMessages)
+                        val allMessages = chatRepository.getMessagesOnce(chat.id)
+                        _fullMessageHistory.addAll(allMessages)
                     } catch (e: Exception) {
-                        // Ignore errors loading messages
+                        // Ignore errors loading full history
                     }
                     
-                    // Get current API key and initialize AI
+                    // Load PAGINATED messages for UI display (only recent messages)
+                    try {
+                        val (recentMessages, hasMore) = chatRepository.getMessagesPagedInitial(chat.id, 20)
+                        _messages.addAll(recentMessages)
+                        _hasMoreMessages.value = hasMore
+                        if (recentMessages.isNotEmpty()) {
+                            oldestLoadedTimestamp = recentMessages.first().timestamp
+                        }
+                    } catch (e: Exception) {
+                        // Fallback: use full history if pagination fails
+                        _messages.addAll(_fullMessageHistory)
+                    }
+                    
+                    // Get current API key and initialize AI with FULL history
                     currentApiKey = apiKeyManager?.getCurrentApiKey()
                     initializeAI()
                     
                     _isLoading.value = false
                     
-                    // Continue listening for messages in a separate coroutine
+                    // Listen for NEW messages only (real-time updates)
+                    val latestTimestamp = _fullMessageHistory.lastOrNull()?.timestamp ?: System.currentTimeMillis()
                     viewModelScope.launch {
-                        chatRepository.getMessages(chat.id)
+                        chatRepository.observeNewMessages(chat.id, latestTimestamp)
                             .catch { e -> _error.value = e.message }
-                            .collect { messageList ->
-                                _messages.clear()
-                                _messages.addAll(messageList)
+                            .collect { newMessage ->
+                                // Check if message is not already in the list (avoid duplicates)
+                                if (_messages.none { it.id == newMessage.id }) {
+                                    _messages.add(newMessage)
+                                }
+                                // Also add to full history for AI context
+                                if (_fullMessageHistory.none { it.id == newMessage.id }) {
+                                    _fullMessageHistory.add(newMessage)
+                                }
                             }
                     }
                 }
@@ -175,6 +207,39 @@ class PrivateChatViewModel : ViewModel() {
                     _error.value = e.message ?: "Failed to create private chat"
                     _isLoading.value = false
                 }
+        }
+    }
+    
+    /**
+     * Load more older messages for UI display (pagination)
+     */
+    fun loadMoreMessages() {
+        if (_isLoadingMore.value || !_hasMoreMessages.value) return
+        
+        val chatId = _currentChat.value?.id ?: return
+        
+        viewModelScope.launch {
+            _isLoadingMore.value = true
+            
+            try {
+                val (olderMessages, hasMore) = chatRepository.getMessagesOlder(
+                    chatId = chatId,
+                    beforeTimestamp = oldestLoadedTimestamp,
+                    limit = 50
+                )
+                
+                if (olderMessages.isNotEmpty()) {
+                    // Prepend older messages to the UI list
+                    _messages.addAll(0, olderMessages)
+                    oldestLoadedTimestamp = olderMessages.first().timestamp
+                }
+                
+                _hasMoreMessages.value = hasMore
+            } catch (e: Exception) {
+                _error.value = "Failed to load more messages: ${e.message}"
+            } finally {
+                _isLoadingMore.value = false
+            }
         }
     }
     
@@ -230,8 +295,8 @@ class PrivateChatViewModel : ViewModel() {
             safetySettings = safetySettings
         )
         
-        // Start chat with existing messages as history
-        val history = _messages.map { message ->
+        // Start chat with FULL message history (not paginated UI messages)
+        val history = _fullMessageHistory.map { message ->
             content(role = if (message.isUser) "user" else "model") {
                 text(message.text)
             }
@@ -415,6 +480,7 @@ class PrivateChatViewModel : ViewModel() {
             isUser = true
         )
         _messages.add(userChatMessage)
+        _fullMessageHistory.add(userChatMessage)
         
         _isLoading.value = true
         _error.value = null
@@ -472,9 +538,9 @@ class PrivateChatViewModel : ViewModel() {
                 return
             }
             
-            // Refresh chat session with current history
+            // Refresh chat session with FULL message history
             if (generativeModel != null) {
-                val history = _messages.map { message ->
+                val history = _fullMessageHistory.map { message ->
                     content(role = if (message.isUser) "user" else "model") {
                         text(message.text)
                     }
@@ -540,6 +606,7 @@ class PrivateChatViewModel : ViewModel() {
                 }
                 
                 val finalMessage = _messages[messageIndex]
+                _fullMessageHistory.add(finalMessage)
                 chatRepository.addMessage(finalMessage)
             } else {
                 // Non-streaming mode
@@ -570,6 +637,7 @@ class PrivateChatViewModel : ViewModel() {
                     characterName = character.name
                 )
                 _messages.add(aiMessage)
+                _fullMessageHistory.add(aiMessage)
                 chatRepository.addMessage(aiMessage)
             }
             
