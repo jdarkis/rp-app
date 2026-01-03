@@ -83,13 +83,7 @@ class AICharacterGeneratorService(private val context: Context) {
                     topP = 0.95f
                     maxOutputTokens = 8192
                 },
-                systemInstruction = content { text(systemPrompt) },
-                tools = emptyList(),
-                toolConfig = ToolConfig(
-                    functionCallingConfig = FunctionCallingConfig(
-                        mode = FunctionCallingConfig.Mode.NONE
-                    )
-                )
+                systemInstruction = content { text(systemPrompt) }
             )
             
             val response = generativeModel.generateContent(userPrompt)

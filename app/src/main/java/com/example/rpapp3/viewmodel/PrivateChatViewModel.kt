@@ -88,6 +88,11 @@ class PrivateChatViewModel : ViewModel() {
     private val _systemPrompt = MutableStateFlow<String?>(null)
     val systemPrompt: StateFlow<String?> = _systemPrompt
     
+    // Display filter settings for UI
+    private val _displayFilterSettings = MutableStateFlow(DisplayFilterSettings())
+    val displayFilterSettings: StateFlow<DisplayFilterSettings> = _displayFilterSettings
+
+    
     private var generativeModel: GenerativeModel? = null
     private var chatSession: com.google.ai.client.generativeai.Chat? = null
     
@@ -104,6 +109,12 @@ class PrivateChatViewModel : ViewModel() {
                 currentApiKey = apiKeyManager?.getCurrentApiKey()
                 currentSettings = chatSettingsManager?.getCurrentSettings() ?: ChatSettings()
                 privateChatSettings = chatSettingsManager?.getPrivateChatSettings() ?: PrivateChatSettings()
+                // Update display filter settings for UI
+                _displayFilterSettings.value = DisplayFilterSettings(
+                    enabled = privateChatSettings.displayFilterEnabled,
+                    openBracket = privateChatSettings.displayFilterOpenBracket,
+                    closeBracket = privateChatSettings.displayFilterCloseBracket
+                )
                 elevenLabsService?.initialize()
             }
         }
@@ -174,6 +185,13 @@ class PrivateChatViewModel : ViewModel() {
         currentSettings = chatSettingsManager?.getCurrentSettings() ?: ChatSettings()
         privateChatSettings = chatSettingsManager?.getPrivateChatSettings() ?: PrivateChatSettings()
         
+        // Update display filter settings for UI
+        _displayFilterSettings.value = DisplayFilterSettings(
+            enabled = privateChatSettings.displayFilterEnabled,
+            openBracket = privateChatSettings.displayFilterOpenBracket,
+            closeBracket = privateChatSettings.displayFilterCloseBracket
+        )
+        
         if (apiKey.isNullOrBlank()) {
             _error.value = "No API key configured. Please add one in Settings."
             return
@@ -185,13 +203,22 @@ class PrivateChatViewModel : ViewModel() {
         }
         
         // Build private chat system instructions (no narrator!)
-        val systemInstructions = buildPrivateChatSystemInstructions(char)
+        val baseSystemInstructions = buildPrivateChatSystemInstructions(char)
+        
+        // Add explicit instructions to avoid external tools for Pro models to mitigate quota issues
+        val extraInstructions = if (currentSettings.aiModelId.contains("pro", ignoreCase = true)) {
+            "\n\n=== TOOL USAGE ===\nDo NOT use any external tools, search engines, or grounding. Rely ONLY on your internal knowledge and the provided context."
+        } else {
+            ""
+        }
+        
+        val systemInstructions = baseSystemInstructions + extraInstructions
         _systemPrompt.value = systemInstructions
         
         val safetySettings = buildSafetySettings()
         
         generativeModel = GenerativeModel(
-            modelName = "gemini-3-flash-preview",
+            modelName = currentSettings.aiModelId,
             apiKey = apiKey,
             generationConfig = generationConfig {
                 temperature = currentSettings.temperature
@@ -200,13 +227,7 @@ class PrivateChatViewModel : ViewModel() {
                 maxOutputTokens = currentSettings.maxOutputTokens
             },
             systemInstruction = content { text(systemInstructions) },
-            safetySettings = safetySettings,
-            tools = emptyList(),
-            toolConfig = ToolConfig(
-                functionCallingConfig = FunctionCallingConfig(
-                    mode = FunctionCallingConfig.Mode.NONE
-                )
-            )
+            safetySettings = safetySettings
         )
         
         // Start chat with existing messages as history
@@ -261,24 +282,28 @@ class PrivateChatViewModel : ViewModel() {
             appendLine("Language: You MUST speak in $languageName.")
             appendLine()
             
+            // Conversation Style - use custom prompt if set, otherwise default
             appendLine("=== CONVERSATION STYLE ===")
-            appendLine("1. This is a DIRECT CONVERSATION like a messaging app")
-            appendLine("2. DO NOT write in third person")
-            appendLine("3. DO NOT describe actions in narrative style (no *actions* or (actions))")
-            appendLine("4. Respond ONLY as ${character.name} would speak")
-            appendLine("5. Keep responses conversational and natural")
-            appendLine("6. You can use emojis if appropriate for the character")
-            appendLine("7. If you need to express an action, write it naturally like in a text message")
-            appendLine("   Example: Instead of '*sighs*' write 'Ugh...' or express it in your words")
+            val customConversationStyle = privateChatSettings.conversationStylePrompt
+            if (customConversationStyle.isNotBlank()) {
+                appendLine(customConversationStyle.replace("{CHARACTER_NAME}", character.name))
+            } else {
+                appendLine(ChatSettingsManager.DEFAULT_CONVERSATION_STYLE_PROMPT.replace("{CHARACTER_NAME}", character.name))
+            }
             appendLine()
             
-            // Response length
+            // Response length - use custom prompt if set, otherwise default based on enum
             appendLine("=== RESPONSE LENGTH ===")
-            when (currentSettings.responseLength) {
-                ResponseLength.SHORT -> appendLine("Keep messages SHORT - 1-3 sentences max, like quick texts.")
-                ResponseLength.MEDIUM -> appendLine("Keep messages MODERATE - a short paragraph, conversational.")
-                ResponseLength.LONG -> appendLine("You can write LONGER messages when appropriate.")
-                ResponseLength.VERY_LONG -> appendLine("Write as much as needed to fully express yourself.")
+            val customResponseLength = privateChatSettings.responseLengthPrompt
+            if (customResponseLength.isNotBlank()) {
+                appendLine(customResponseLength)
+            } else {
+                when (currentSettings.responseLength) {
+                    ResponseLength.SHORT -> appendLine("Keep messages SHORT - 1-3 sentences max, like quick texts.")
+                    ResponseLength.MEDIUM -> appendLine("Keep messages MODERATE - a short paragraph, conversational.")
+                    ResponseLength.LONG -> appendLine("You can write LONGER messages when appropriate.")
+                    ResponseLength.VERY_LONG -> appendLine("Write as much as needed to fully express yourself.")
+                }
             }
             
             // Context from world chats (if any)
@@ -294,9 +319,20 @@ class PrivateChatViewModel : ViewModel() {
                         if (contextMessages.isNotEmpty()) {
                             appendLine()
                             appendLine("--- Memory fragment ---")
-                            contextMessages.takeLast(20).forEach { msg ->
+                            contextMessages.forEach { msg ->
                                 val prefix = if (msg.isUser) "User" else msg.characterName ?: "AI"
-                                appendLine("$prefix: ${msg.text.take(500)}")
+                                // Strip action/dialogue choices from AI messages
+                                val cleanedText = if (!msg.isUser) {
+                                    val actionsIndex = msg.text.indexOf("[ACTIONS]")
+                                    if (actionsIndex != -1) {
+                                        msg.text.substring(0, actionsIndex).trim()
+                                    } else {
+                                        msg.text
+                                    }
+                                } else {
+                                    msg.text
+                                }
+                                appendLine("$prefix: $cleanedText")
                             }
                         }
                     } catch (e: Exception) {
@@ -401,6 +437,16 @@ class PrivateChatViewModel : ViewModel() {
         
         if (keyAttemptNumber >= totalKeys && totalKeys > 0) {
             _error.value = "All API keys have exceeded their quota."
+            
+            val errorChatMessage = ChatMessage(
+                chatId = chatId,
+                text = "Error: All API keys have exceeded their quota. Please add new keys in Settings or wait for quota reset.",
+                isUser = false,
+                characterId = character.id,
+                characterName = character.name
+            )
+            _messages.add(errorChatMessage)
+            
             _isLoading.value = false
             return
         }
@@ -412,6 +458,16 @@ class PrivateChatViewModel : ViewModel() {
             
             if (chatSession == null) {
                 _error.value = "Failed to initialize AI. Check your API key."
+                
+                val errorChatMessage = ChatMessage(
+                    chatId = chatId,
+                    text = "Error: Failed to initialize AI. Check your API key in Settings.",
+                    isUser = false,
+                    characterId = character.id,
+                    characterName = character.name
+                )
+                _messages.add(errorChatMessage)
+                
                 _isLoading.value = false
                 return
             }
@@ -443,6 +499,16 @@ class PrivateChatViewModel : ViewModel() {
                 if (responseFlow == null) {
                     _messages.removeAt(messageIndex)
                     _error.value = "Failed to get response from AI."
+                    
+                    val errorChatMessage = ChatMessage(
+                        chatId = chatId,
+                        text = "Error: Failed to get response from AI. Please try again.",
+                        isUser = false,
+                        characterId = character.id,
+                        characterName = character.name
+                    )
+                    _messages.add(errorChatMessage)
+                    
                     _isLoading.value = false
                     return
                 }
@@ -459,6 +525,16 @@ class PrivateChatViewModel : ViewModel() {
                 if (fullResponse.isEmpty()) {
                     _messages.removeAt(messageIndex)
                     _error.value = "AI returned an empty response."
+                    
+                    val errorChatMessage = ChatMessage(
+                        chatId = chatId,
+                        text = "Error: AI returned an empty response. Please try again.",
+                        isUser = false,
+                        characterId = character.id,
+                        characterName = character.name
+                    )
+                    _messages.add(errorChatMessage)
+                    
                     _isLoading.value = false
                     return
                 }
@@ -472,6 +548,16 @@ class PrivateChatViewModel : ViewModel() {
                 
                 if (responseText.isNullOrBlank()) {
                     _error.value = "AI returned an empty response."
+                    
+                    val errorChatMessage = ChatMessage(
+                        chatId = chatId,
+                        text = "Error: AI returned an empty response. Please try again.",
+                        isUser = false,
+                        characterId = character.id,
+                        characterName = character.name
+                    )
+                    _messages.add(errorChatMessage)
+                    
                     _isLoading.value = false
                     return
                 }
@@ -490,7 +576,14 @@ class PrivateChatViewModel : ViewModel() {
             _isLoading.value = false
             
         } catch (e: Exception) {
-            val errorMessage = e.localizedMessage ?: e.message ?: "An error occurred"
+            // Extract full error details including cause
+            val errorMessage = buildString {
+                append(e.localizedMessage ?: e.message ?: "An unknown error occurred")
+                e.cause?.let { cause ->
+                    append(" Caused by: ${cause.localizedMessage ?: cause.message}")
+                }
+            }
+
             
             if (apiKeyManager?.isRateLimitError(errorMessage) == true) {
                 if (rateLimitRetries < maxRateLimitRetries) {
@@ -513,12 +606,34 @@ class PrivateChatViewModel : ViewModel() {
                     return
                 } else {
                     _error.value = "All API keys have exceeded their quota."
+                    
+                    // Add error as chat message so user sees it in chat
+                    val errorChatMessage = ChatMessage(
+                        chatId = chatId,
+                        text = "Error: All API keys have exceeded their quota. Please wait for the daily quota to reset or add new keys in Settings.",
+                        isUser = false,
+                        characterId = character.id,
+                        characterName = character.name
+                    )
+                    _messages.add(errorChatMessage)
+                    
                     _isLoading.value = false
                     return
                 }
             }
             
             _error.value = errorMessage
+            
+            // Add error as chat message so user sees it in chat
+            val errorChatMessage = ChatMessage(
+                chatId = chatId,
+                text = "Error: $errorMessage",
+                isUser = false,
+                characterId = character.id,
+                characterName = character.name
+            )
+            _messages.add(errorChatMessage)
+            
             _isLoading.value = false
         }
     }
@@ -634,3 +749,12 @@ class PrivateChatViewModel : ViewModel() {
         _ttsManager?.resume()
     }
 }
+
+/**
+ * Settings for the display filter feature
+ */
+data class DisplayFilterSettings(
+    val enabled: Boolean = false,
+    val openBracket: String = ChatSettingsManager.DEFAULT_DISPLAY_FILTER_OPEN_BRACKET,
+    val closeBracket: String = ChatSettingsManager.DEFAULT_DISPLAY_FILTER_CLOSE_BRACKET
+)

@@ -204,6 +204,7 @@ fun ChatScreen(
     val chatSettingsManager = remember { ChatSettingsManager.getInstance(context) }
     val filterMode by chatSettingsManager.filterMode.collectAsState(initial = MessageFilterMode.OFF)
     val customDelimiter by chatSettingsManager.customDelimiter.collectAsState(initial = ChatSettingsManager.DEFAULT_DELIMITER)
+    val customDelimiters by chatSettingsManager.customDelimiters.collectAsState(initial = listOf(ChatSettingsManager.DEFAULT_DELIMITER))
     val paragraphCount by chatSettingsManager.paragraphCount.collectAsState(initial = ChatSettingsManager.DEFAULT_PARAGRAPH_COUNT)
     val separateCharacterDialogue by chatSettingsManager.separateCharacterDialogue.collectAsState(initial = true)
     val provideChoicesEnabled by chatSettingsManager.provideChoicesEnabled.collectAsState(initial = true)
@@ -270,14 +271,22 @@ fun ChatScreen(
         val lastAiMessage = messages.lastOrNull { !it.isUser }
         
         // Only speak if it's a new message we haven't spoken yet
-        if (lastAiMessage != null && lastAiMessage.id != lastSpokenMessageId) {
+        // Skip error messages (don't TTS error responses)
+        if (lastAiMessage != null && lastAiMessage.id != lastSpokenMessageId && !lastAiMessage.text.startsWith("Error:")) {
             lastSpokenMessageId = lastAiMessage.id
             
             // Get the display text based on current filter settings (visible text only)
             val displayText = when (filterMode) {
                 MessageFilterMode.AFTER_DELIMITER -> {
-                    val parts = lastAiMessage.text.split(customDelimiter)
-                    if (parts.size > 1) parts.last().trim() else lastAiMessage.text
+                    // Try each delimiter in order until one is found
+                    var result: String? = null
+                    for (delimiter in customDelimiters) {
+                        if (delimiter.isNotEmpty() && lastAiMessage.text.contains(delimiter)) {
+                            result = lastAiMessage.text.substringAfterLast(delimiter).trim()
+                            break
+                        }
+                    }
+                    result?.ifEmpty { lastAiMessage.text } ?: lastAiMessage.text
                 }
                 MessageFilterMode.LAST_N_PARAGRAPHS -> {
                     val paragraphs = lastAiMessage.text.split("\n\n")
@@ -307,11 +316,16 @@ fun ChatScreen(
                         characterId = character?.id
                     )
                 }
-                // Speak all segments sequentially with appropriate voices
-                viewModel.speakSegmentsSequentially(speakableSegments)
+                // Speak all segments sequentially with appropriate voices, enabling audio caching
+                viewModel.speakSegmentsSequentially(speakableSegments, lastAiMessage.id)
             } else {
-                // Speak the whole visible message (without choices)
-                viewModel.speakText(textWithoutChoices, lastAiMessage.characterId)
+                // Speak the whole visible message (without choices), enabling audio caching
+                viewModel.speakTextWithCaching(
+                    text = textWithoutChoices, 
+                    characterId = lastAiMessage.characterId,
+                    messageId = lastAiMessage.id,
+                    segmentIndex = 0
+                )
             }
         }
     }
@@ -393,7 +407,7 @@ fun ChatScreen(
                         character = characters.find { it.id == message.characterId },
                         allCharacters = worldCharacters,
                         filterMode = filterMode,
-                        customDelimiter = customDelimiter,
+                        customDelimiters = customDelimiters,
                         paragraphCount = paragraphCount,
                         separateDialogue = separateCharacterDialogue,
                         provideChoicesEnabled = provideChoicesEnabled,
@@ -558,7 +572,7 @@ fun MessageBubble(
     character: Character?,
     allCharacters: List<Character> = emptyList(),
     filterMode: MessageFilterMode = MessageFilterMode.OFF,
-    customDelimiter: String = "***",
+    customDelimiters: List<String> = listOf("***"),
     paragraphCount: Int = 1,
     separateDialogue: Boolean = true,
     provideChoicesEnabled: Boolean = true,
@@ -620,12 +634,15 @@ fun MessageBubble(
                 }
             }
             MessageFilterMode.AFTER_DELIMITER -> {
-                if (customDelimiter.isNotEmpty() && message.text.contains(customDelimiter)) {
-                    message.text.substringAfterLast(customDelimiter).trim()
-                        .ifEmpty { message.text }
-                } else {
-                    message.text
+                // Try each delimiter in order until one is found
+                var result: String? = null
+                for (delimiter in customDelimiters) {
+                    if (delimiter.isNotEmpty() && message.text.contains(delimiter)) {
+                        result = message.text.substringAfterLast(delimiter).trim()
+                        break
+                    }
                 }
+                result?.ifEmpty { message.text } ?: message.text
             }
         }
     } else {

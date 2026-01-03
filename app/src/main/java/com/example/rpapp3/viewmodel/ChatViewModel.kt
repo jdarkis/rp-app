@@ -16,12 +16,16 @@ import com.example.rpapp3.data.ResponseLength
 import com.example.rpapp3.data.SafetyThreshold
 import com.example.rpapp3.data.TTSManager
 import com.example.rpapp3.data.TTSPlaybackState
+import com.example.rpapp3.data.StorySummarizerService
+import com.example.rpapp3.data.SummaryResult
 import com.example.rpapp3.data.model.Character
 import com.example.rpapp3.data.model.Chat
 import com.example.rpapp3.data.model.ChatMessage
 import com.example.rpapp3.data.model.ElevenLabsTTSModels
 import com.example.rpapp3.data.model.SegmentAudioCache
+import com.example.rpapp3.data.model.SummaryProposal
 import com.example.rpapp3.data.model.World
+import com.example.rpapp3.ui.chat.SelectedUpdates
 import com.example.rpapp3.data.repository.CharacterRepository
 import com.example.rpapp3.data.repository.ChatRepository
 import com.example.rpapp3.data.repository.MediaStorageService
@@ -99,6 +103,15 @@ class ChatViewModel : ViewModel() {
     private val _cachedAudioUrls = MutableStateFlow<Map<String, Map<Int, String>>>(emptyMap())
     val cachedAudioUrls: StateFlow<Map<String, Map<Int, String>>> = _cachedAudioUrls
     
+    // Story summarizer state
+    private var storySummarizerService: StorySummarizerService? = null
+    private val _summaryProposal = MutableStateFlow<SummaryProposal?>(null)
+    val summaryProposal: StateFlow<SummaryProposal?> = _summaryProposal
+    private val _isSummarizing = MutableStateFlow(false)
+    val isSummarizing: StateFlow<Boolean> = _isSummarizing
+    private val _summaryError = MutableStateFlow<String?>(null)
+    val summaryError: StateFlow<String?> = _summaryError
+    
     private var generativeModel: GenerativeModel? = null
     private var chatSession: com.google.ai.client.generativeai.Chat? = null
     
@@ -112,6 +125,7 @@ class ChatViewModel : ViewModel() {
             chatSettingsManager = ChatSettingsManager.getInstance(context)
             elevenLabsService = ElevenLabsService.getInstance(context)
             _ttsManager = TTSManager.getInstance(context)
+            storySummarizerService = StorySummarizerService(context)
             viewModelScope.launch {
                 apiKeyManager?.initializeDefaults()
                 // Reset to first key on app start - quotas may have reset
@@ -257,14 +271,23 @@ class ChatViewModel : ViewModel() {
         }
         
         // Build system instructions from world and characters
-        val systemInstructions = buildSystemInstructions(world, characters, unlockPrompt)
+        val baseSystemInstructions = buildSystemInstructions(world, characters, unlockPrompt)
+        
+        // Add explicit instructions to avoid external tools for Pro models to mitigate quota issues
+        val extraInstructions = if (currentSettings.aiModelId.contains("pro", ignoreCase = true)) {
+            "\n\n=== TOOL USAGE ===\nDo NOT use any external tools, search engines, or grounding. Rely ONLY on your internal knowledge and the provided context."
+        } else {
+            ""
+        }
+        
+        val systemInstructions = baseSystemInstructions + extraInstructions
         _systemPrompt.value = systemInstructions
         
         // Build safety settings from user preferences
         val safetySettings = buildSafetySettings()
         
         generativeModel = GenerativeModel(
-            modelName = "gemini-3-flash-preview",
+            modelName = currentSettings.aiModelId,
             apiKey = apiKey,
             generationConfig = generationConfig {
                 temperature = currentSettings.temperature
@@ -273,15 +296,7 @@ class ChatViewModel : ViewModel() {
                 maxOutputTokens = currentSettings.maxOutputTokens
             },
             systemInstruction = content { text(systemInstructions) },
-            safetySettings = safetySettings,
-            // IMPORTANT: Disable all tools including Google Search grounding
-            // This prevents quota errors from the search/grounding feature
-            tools = emptyList(),
-            toolConfig = ToolConfig(
-                functionCallingConfig = FunctionCallingConfig(
-                    mode = FunctionCallingConfig.Mode.NONE
-                )
-            )
+            safetySettings = safetySettings
         )
         
         // Start chat with existing messages as history
@@ -579,6 +594,14 @@ class ChatViewModel : ViewModel() {
             
             if (chatSession == null) {
                 _error.value = "Failed to initialize AI. Check your API key in Settings."
+                
+                val errorChatMessage = ChatMessage(
+                    chatId = chatId,
+                    text = "Error: Failed to initialize AI. Check your API key in Settings.",
+                    isUser = false
+                )
+                _messages.add(errorChatMessage)
+                
                 _isLoading.value = false
                 return
             }
@@ -613,6 +636,14 @@ class ChatViewModel : ViewModel() {
                     // Remove the placeholder message if stream failed to start
                     _messages.removeAt(messageIndex)
                     _error.value = "Failed to get response from AI. Please try again."
+                    
+                    val errorChatMessage = ChatMessage(
+                        chatId = chatId,
+                        text = "Error: Failed to get response from AI. Please try again.",
+                        isUser = false
+                    )
+                    _messages.add(errorChatMessage)
+                    
                     _isLoading.value = false
                     return
                 }
@@ -632,6 +663,14 @@ class ChatViewModel : ViewModel() {
                     // Remove the empty placeholder message
                     _messages.removeAt(messageIndex)
                     _error.value = "AI returned an empty response. Please try again."
+                    
+                    val errorChatMessage = ChatMessage(
+                        chatId = chatId,
+                        text = "Error: AI returned an empty response. Please try again.",
+                        isUser = false
+                    )
+                    _messages.add(errorChatMessage)
+                    
                     _isLoading.value = false
                     return
                 }
@@ -646,6 +685,14 @@ class ChatViewModel : ViewModel() {
                 
                 if (responseText.isNullOrBlank()) {
                     _error.value = "AI returned an empty response. Please try again."
+                    
+                    val errorChatMessage = ChatMessage(
+                        chatId = chatId,
+                        text = "Error: AI returned an empty response. Please try again.",
+                        isUser = false
+                    )
+                    _messages.add(errorChatMessage)
+                    
                     _isLoading.value = false
                     return
                 }
@@ -663,7 +710,13 @@ class ChatViewModel : ViewModel() {
             _isLoading.value = false
             
         } catch (e: Exception) {
-            val errorMessage = e.localizedMessage ?: e.message ?: "An error occurred"
+            // Extract full error details including cause
+            val errorMessage = buildString {
+                append(e.localizedMessage ?: e.message ?: "An unknown error occurred")
+                e.cause?.let { cause ->
+                    append(" Caused by: ${cause.localizedMessage ?: cause.message}")
+                }
+            }
             
             // Check if this is a rate limit error (429) - wait and retry with same key
             if (apiKeyManager?.isRateLimitError(errorMessage) == true) {
@@ -869,6 +922,120 @@ class ChatViewModel : ViewModel() {
     
     fun clearError() {
         _error.value = null
+    }
+    
+    // ==================== STORY SUMMARIZER METHODS ====================
+    
+    /**
+     * Generate a story summary and proposed character/world updates
+     */
+    fun generateStorySummary() {
+        if (_isSummarizing.value) return
+        
+        viewModelScope.launch {
+            _isSummarizing.value = true
+            _summaryError.value = null
+            _summaryProposal.value = null
+            
+            val messages = _messages.toList()
+            val characters = _characters.value
+            val world = _world.value
+            
+            when (val result = storySummarizerService?.summarizeStory(messages, characters, world)) {
+                is SummaryResult.Success -> {
+                    _summaryProposal.value = result.proposal
+                }
+                is SummaryResult.Error -> {
+                    _summaryError.value = result.message
+                }
+                null -> {
+                    _summaryError.value = "Summarizer service not initialized"
+                }
+            }
+            
+            _isSummarizing.value = false
+        }
+    }
+    
+    /**
+     * Apply selected updates from the summary proposal
+     */
+    fun applySummaryUpdates(
+        selectedUpdates: SelectedUpdates,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val proposal = _summaryProposal.value ?: return
+        
+        viewModelScope.launch {
+            try {
+                // Apply character updates
+                proposal.characterUpdates.forEach { charUpdate ->
+                    val character = _characters.value.find { it.id == charUpdate.characterId } ?: return@forEach
+                    
+                    var updatedCharacter = character
+                    
+                    // Apply background if selected
+                    if (selectedUpdates.characterBackgrounds[charUpdate.characterId] == true && charUpdate.backgroundNew != null) {
+                        updatedCharacter = updatedCharacter.copy(description = charUpdate.backgroundNew)
+                    }
+                    
+                    // Apply appearance if selected
+                    if (selectedUpdates.characterAppearances[charUpdate.characterId] == true && charUpdate.appearanceNew != null) {
+                        updatedCharacter = updatedCharacter.copy(appearance = charUpdate.appearanceNew)
+                    }
+                    
+                    // Apply personality if selected
+                    if (selectedUpdates.characterPersonalities[charUpdate.characterId] == true && charUpdate.personalityNew != null) {
+                        updatedCharacter = updatedCharacter.copy(personality = charUpdate.personalityNew)
+                    }
+                    
+                    // Only update if something changed
+                    if (updatedCharacter != character) {
+                        characterRepository.updateCharacter(updatedCharacter)
+                    }
+                }
+                
+                // Apply world update if selected
+                if (selectedUpdates.worldDescription && proposal.worldUpdateProposal?.descriptionNew != null) {
+                    val world = _world.value
+                    if (world != null) {
+                        val updatedWorld = world.copy(description = proposal.worldUpdateProposal.descriptionNew)
+                        worldRepository.updateWorld(updatedWorld)
+                        _world.value = updatedWorld
+                    }
+                }
+                
+                // Refresh characters state
+                val currentChat = _currentChat.value
+                if (currentChat != null) {
+                    val updatedChars = characterRepository.getCharactersByIds(currentChat.characterIds)
+                    _characters.value = updatedChars
+                }
+                
+                // Clear the proposal
+                _summaryProposal.value = null
+                
+                onSuccess()
+            } catch (e: Exception) {
+                onError(e.message ?: "Failed to apply updates")
+            }
+        }
+    }
+    
+    /**
+     * Dismiss the summary proposal without applying changes
+     */
+    fun dismissSummaryProposal() {
+        _summaryProposal.value = null
+        _summaryError.value = null
+    }
+    
+    /**
+     * Clear summary error
+     */
+    fun clearSummaryError() {
+        _summaryError.value = null
     }
     
     /**
@@ -1126,8 +1293,9 @@ class ChatViewModel : ViewModel() {
      * Speak multiple segments sequentially, using appropriate voice for each
      * Pre-fetches next segment's audio while current plays to eliminate gaps
      * Can be cancelled via stopSpeaking()
+     * @param messageId Optional message ID to enable audio caching for each segment
      */
-    fun speakSegmentsSequentially(segments: List<SpeakableSegment>) {
+    fun speakSegmentsSequentially(segments: List<SpeakableSegment>, messageId: String? = null) {
         if (segments.isEmpty()) return
         
         // Cancel any previous sequential playback
@@ -1153,8 +1321,8 @@ class ChatViewModel : ViewModel() {
                     nextAudioDeferred = null
                     nextSegmentId = null
                 } else {
-                    // Generate audio for first segment
-                    val result = generateAudioForSegment(segment)
+                    // Generate audio for first segment (with caching if messageId provided)
+                    val result = generateAudioForSegment(segment, messageId, i)
                     audioData = result.first
                     segmentId = result.second
                 }
@@ -1164,14 +1332,15 @@ class ChatViewModel : ViewModel() {
                 // Start pre-fetching NEXT segment's audio while this one plays
                 if (i + 1 < segments.size && isActive) {
                     val nextSegment = segments[i + 1]
-                    nextSegmentId = "${System.currentTimeMillis()}_${nextSegment.text.hashCode()}"
+                    val nextIndex = i + 1
+                    nextSegmentId = "${messageId}_$nextIndex"
                     nextAudioDeferred = async {
-                        generateAudioForSegment(nextSegment).first
+                        generateAudioForSegment(nextSegment, messageId, nextIndex).first
                     }
                 }
                 
                 // Play current segment
-                _ttsManager?.playFromBytes(audioData, segmentId)
+                _ttsManager?.playFromBytes(audioData, "${messageId}_$i")
                 
                 // Wait for playback to complete
                 // IMPORTANT: First wait for PLAYING state (playFromBytes calls stop() which briefly sets IDLE)

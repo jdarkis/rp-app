@@ -52,11 +52,19 @@ fun PrivateChatSettingsScreen(
     // Writing style state (stored in Firebase per-chat)
     var writingStyle by remember { mutableStateOf("") }
     
+    // Custom system prompts state (stored in DataStore)
+    var conversationStylePrompt by remember { mutableStateOf("") }
+    var responseLengthPrompt by remember { mutableStateOf("") }
+    
+    // Display filter settings state
+    var displayFilterEnabled by remember { mutableStateOf(false) }
+    var displayFilterOpenBracket by remember { mutableStateOf<String>(ChatSettingsManager.DEFAULT_DISPLAY_FILTER_OPEN_BRACKET) }
+    var displayFilterCloseBracket by remember { mutableStateOf<String>(ChatSettingsManager.DEFAULT_DISPLAY_FILTER_CLOSE_BRACKET) }
+    
     // Dialog states
     var showSystemPromptDialog by remember { mutableStateOf(false) }
     val systemPrompt by viewModel.systemPrompt.collectAsState()
     
-    // Load current settings
     LaunchedEffect(Unit) {
         val settings = chatSettingsManager.getPrivateChatSettings()
         ttsEnabled = settings.ttsEnabled
@@ -64,6 +72,11 @@ fun PrivateChatSettingsScreen(
         ttsAudioTagsEnabled = settings.ttsAudioTagsEnabled
         thinkingEnabled = settings.thinkingEnabled
         unlockPromptEnabled = settings.unlockPromptEnabled
+        conversationStylePrompt = settings.conversationStylePrompt
+        responseLengthPrompt = settings.responseLengthPrompt
+        displayFilterEnabled = settings.displayFilterEnabled
+        displayFilterOpenBracket = settings.displayFilterOpenBracket
+        displayFilterCloseBracket = settings.displayFilterCloseBracket
     }
     
     // Initialize with current context and writing style
@@ -106,6 +119,13 @@ fun PrivateChatSettingsScreen(
                                 // Save advanced settings
                                 chatSettingsManager.setPrivateThinkingEnabled(thinkingEnabled)
                                 chatSettingsManager.setPrivateUnlockPromptEnabled(unlockPromptEnabled)
+                                // Save custom prompts
+                                chatSettingsManager.setPrivateConversationStylePrompt(conversationStylePrompt)
+                                chatSettingsManager.setPrivateResponseLengthPrompt(responseLengthPrompt)
+                                // Save display filter settings
+                                chatSettingsManager.setPrivateDisplayFilterEnabled(displayFilterEnabled)
+                                chatSettingsManager.setPrivateDisplayFilterOpenBracket(displayFilterOpenBracket)
+                                chatSettingsManager.setPrivateDisplayFilterCloseBracket(displayFilterCloseBracket)
                                 
                                 Toast.makeText(context, "Settings saved", Toast.LENGTH_SHORT).show()
                                 onNavigateBack()
@@ -253,6 +273,117 @@ fun PrivateChatSettingsScreen(
                 }
             }
             
+            // Display Filter Section
+            item {
+                Text(
+                    text = "Display Filter",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+                Text(
+                    text = "Filter AI messages to only show text within specified brackets.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+            }
+            
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(4.dp)
+                    ) {
+                        // Display Filter Enabled Toggle
+                        ListItem(
+                            headlineContent = { Text("Enable Display Filter") },
+                            supportingContent = { Text("Only show text within brackets") },
+                            leadingContent = {
+                                Icon(
+                                    imageVector = Icons.Default.FilterAlt,
+                                    contentDescription = null
+                                )
+                            },
+                            trailingContent = {
+                                Switch(
+                                    checked = displayFilterEnabled,
+                                    onCheckedChange = { displayFilterEnabled = it }
+                                )
+                            }
+                        )
+                        
+                        if (displayFilterEnabled) {
+                            HorizontalDivider()
+                            
+                            // Open Bracket
+                            ListItem(
+                                headlineContent = { Text("Open Bracket") },
+                                supportingContent = {
+                                    OutlinedTextField(
+                                        value = displayFilterOpenBracket,
+                                        onValueChange = { newValue -> displayFilterOpenBracket = newValue },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        placeholder = { Text("[\"") }
+                                    )
+                                }
+                            )
+                            
+                            HorizontalDivider()
+                            
+                            // Close Bracket
+                            ListItem(
+                                headlineContent = { Text("Close Bracket") },
+                                supportingContent = {
+                                    OutlinedTextField(
+                                        value = displayFilterCloseBracket,
+                                        onValueChange = { newValue -> displayFilterCloseBracket = newValue },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        placeholder = { Text("\"]") }
+                                    )
+                                }
+                            )
+                            
+                            HorizontalDivider()
+                            
+                            // Preview
+                            ListItem(
+                                headlineContent = { Text("Preview") },
+                                supportingContent = {
+                                    Column {
+                                        val exampleInput = "Hello! ${displayFilterOpenBracket}This is the filtered text${displayFilterCloseBracket} Extra content."
+                                        Text(
+                                            text = "Input: $exampleInput",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "Output: This is the filtered text",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                },
+                                leadingContent = {
+                                    Icon(
+                                        imageVector = Icons.Default.Visibility,
+                                        contentDescription = null
+                                    )
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+            
             // Writing Style Section
             item {
                 Text(
@@ -279,6 +410,60 @@ fun PrivateChatSettingsScreen(
                     label = { Text("Writing Style Instructions") },
                     minLines = 3,
                     maxLines = 8
+                )
+            }
+            
+            // System Prompts Section
+            item {
+                Text(
+                    text = "System Prompts",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+                Text(
+                    text = "Customize the AI's behavior instructions. Leave empty to use defaults.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+            }
+            
+            item {
+                OutlinedTextField(
+                    value = conversationStylePrompt,
+                    onValueChange = { conversationStylePrompt = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 120.dp),
+                    placeholder = { 
+                        Text(
+                            "Default: Direct conversation with internal thoughts follow by message in [" + "\"" + "..." + "\"" + "]. " +
+                            "No third person, no narrative actions, natural texting style..."
+                        ) 
+                    },
+                    label = { Text("Conversation Style Prompt") },
+                    supportingText = { Text("Use {CHARACTER_NAME} as a placeholder for the character's name") },
+                    minLines = 4,
+                    maxLines = 10
+                )
+            }
+            
+            item {
+                OutlinedTextField(
+                    value = responseLengthPrompt,
+                    onValueChange = { responseLengthPrompt = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 80.dp),
+                    placeholder = { 
+                        Text(
+                            "Default: Based on response length setting (SHORT/MEDIUM/LONG/VERY_LONG)"
+                        ) 
+                    },
+                    label = { Text("Response Length Prompt") },
+                    supportingText = { Text("Custom instruction overrides the response length setting") },
+                    minLines = 2,
+                    maxLines = 6
                 )
             }
             

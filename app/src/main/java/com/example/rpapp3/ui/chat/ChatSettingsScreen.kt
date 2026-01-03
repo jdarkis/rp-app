@@ -16,6 +16,11 @@ import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -62,6 +67,7 @@ fun ChatSettingsScreen(
     // Collect all settings
     val filterMode by chatSettingsManager.filterMode.collectAsState(initial = MessageFilterMode.OFF)
     val customDelimiter by chatSettingsManager.customDelimiter.collectAsState(initial = ChatSettingsManager.DEFAULT_DELIMITER)
+    val customDelimiters by chatSettingsManager.customDelimiters.collectAsState(initial = listOf(ChatSettingsManager.DEFAULT_DELIMITER))
     val paragraphCount by chatSettingsManager.paragraphCount.collectAsState(initial = ChatSettingsManager.DEFAULT_PARAGRAPH_COUNT)
     val streamingEnabled by chatSettingsManager.streamingEnabled.collectAsState(initial = false)
     val temperature by chatSettingsManager.temperature.collectAsState(initial = ChatSettingsManager.DEFAULT_TEMPERATURE)
@@ -92,6 +98,9 @@ fun ChatSettingsScreen(
     // Narrator Language Setting
     val narratorLanguage by chatSettingsManager.narratorLanguage.collectAsState(initial = "en")
     
+    // AI Model Setting
+    val aiModelId by chatSettingsManager.aiModelId.collectAsState(initial = ChatSettingsManager.DEFAULT_AI_MODEL_ID)
+    
     // ElevenLabs Service and Voices
     val elevenLabsService = remember { ElevenLabsService.getInstance(context) }
     val ttsManager = remember { TTSManager.getInstance(context) }
@@ -106,8 +115,14 @@ fun ChatSettingsScreen(
     }
     
     // Local state for inputs
-    var delimiterInput by remember(customDelimiter) { mutableStateOf(customDelimiter) }
+    var delimiterInputs by remember(customDelimiters) { mutableStateOf(customDelimiters) }
     var showSystemPromptDialog by remember { mutableStateOf(false) }
+    
+    // Summarizer state
+    val summaryProposal by chatViewModel.summaryProposal.collectAsState()
+    val isSummarizing by chatViewModel.isSummarizing.collectAsState()
+    val summaryError by chatViewModel.summaryError.collectAsState()
+    var showSummaryErrorSnackbar by remember { mutableStateOf(false) }
     
     // Expandable sections
     var displaySectionExpanded by remember { mutableStateOf(true) }
@@ -160,6 +175,25 @@ fun ChatSettingsScreen(
                 TextButton(onClick = { showSystemPromptDialog = false }) {
                     Text("Close")
                 }
+            }
+        )
+    }
+    
+    // Summary Review Dialog
+    summaryProposal?.let { proposal ->
+        SummaryReviewDialog(
+            proposal = proposal,
+            onApply = { selectedUpdates ->
+                chatViewModel.applySummaryUpdates(
+                    selectedUpdates = selectedUpdates,
+                    onSuccess = {
+                        chatViewModel.dismissSummaryProposal()
+                    },
+                    onError = { /* Error is handled internally */ }
+                )
+            },
+            onDismiss = {
+                chatViewModel.dismissSummaryProposal()
             }
         )
     }
@@ -309,26 +343,125 @@ fun ChatSettingsScreen(
                     
                     if (filterMode == MessageFilterMode.AFTER_DELIMITER) {
                         Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = delimiterInput,
-                            onValueChange = { delimiterInput = it },
-                            label = { Text("Delimiter") },
-                            placeholder = { Text("e.g. *** or ---") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            supportingText = { Text("Text after this symbol will be shown") },
-                            trailingIcon = {
-                                if (delimiterInput != customDelimiter && delimiterInput.isNotEmpty()) {
-                                    TextButton(
+                        
+                        Text(
+                            text = "Delimiters are tried in order - first match is used.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                        
+                        // Display each delimiter input
+                        delimiterInputs.forEachIndexed { index, delimiter ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Reorder buttons column
+                                Column {
+                                    // Move up button (hide for first item)
+                                    IconButton(
                                         onClick = {
-                                            scope.launch { chatSettingsManager.setCustomDelimiter(delimiterInput) }
+                                            if (index > 0) {
+                                                delimiterInputs = delimiterInputs.toMutableList().also {
+                                                    val temp = it[index]
+                                                    it[index] = it[index - 1]
+                                                    it[index - 1] = temp
+                                                }
+                                            }
+                                        },
+                                        enabled = index > 0,
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.KeyboardArrowUp,
+                                            contentDescription = "Move up",
+                                            tint = if (index > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                    // Move down button (hide for last item)
+                                    IconButton(
+                                        onClick = {
+                                            if (index < delimiterInputs.size - 1) {
+                                                delimiterInputs = delimiterInputs.toMutableList().also {
+                                                    val temp = it[index]
+                                                    it[index] = it[index + 1]
+                                                    it[index + 1] = temp
+                                                }
+                                            }
+                                        },
+                                        enabled = index < delimiterInputs.size - 1,
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.KeyboardArrowDown,
+                                            contentDescription = "Move down",
+                                            tint = if (index < delimiterInputs.size - 1) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                                
+                                OutlinedTextField(
+                                    value = delimiter,
+                                    onValueChange = { newValue ->
+                                        delimiterInputs = delimiterInputs.toMutableList().also { it[index] = newValue }
+                                    },
+                                    label = { Text(if (index == 0) "Primary" else "Fallback ${index}") },
+                                    placeholder = { Text(if (index == 0) "e.g. ***" else "e.g. ---") },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                
+                                // Delete button (only if more than 1 delimiter)
+                                if (delimiterInputs.size > 1) {
+                                    IconButton(
+                                        onClick = {
+                                            delimiterInputs = delimiterInputs.toMutableList().also { it.removeAt(index) }
                                         }
                                     ) {
-                                        Text("Save")
+                                        Icon(
+                                            Icons.Default.Delete,
+                                            contentDescription = "Remove delimiter",
+                                            tint = MaterialTheme.colorScheme.error
+                                        )
                                     }
                                 }
                             }
-                        )
+                            Spacer(modifier = Modifier.height(4.dp))
+                        }
+                        
+                        // Add delimiter button (max 5)
+                        if (delimiterInputs.size < 5) {
+                            OutlinedButton(
+                                onClick = {
+                                    delimiterInputs = delimiterInputs + ""
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Add Fallback Delimiter")
+                            }
+                        }
+                        
+                        // Save button
+                        val hasChanges = delimiterInputs.filter { it.isNotEmpty() } != customDelimiters
+                        if (hasChanges && delimiterInputs.any { it.isNotEmpty() }) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(
+                                onClick = {
+                                    scope.launch { 
+                                        chatSettingsManager.setCustomDelimiters(delimiterInputs.filter { it.isNotEmpty() })
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Save Delimiters")
+                            }
+                        }
                     }
                 }
                 
@@ -778,34 +911,132 @@ fun ChatSettingsScreen(
                     )
                 }
                 
-                // Model Info Card
+                // Story Tools Section
+                SettingsSection(
+                    title = "Story Tools",
+                    expanded = true,
+                    onToggle = { }
+                ) {
+                    Text(
+                        text = "Analyze and manage your story progression",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    
+                    // Summarize Story Button
+                    Button(
+                        onClick = { chatViewModel.generateStorySummary() },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !isSummarizing
+                    ) {
+                        if (isSummarizing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Summarizing...")
+                        } else {
+                            Icon(
+                                Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                modifier = Modifier.padding(end = 8.dp)
+                            )
+                            Text("Summarize Story")
+                        }
+                    }
+                    
+                    Text(
+                        text = "Analyze the story, track character development, and suggest updates to character/world descriptions",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                    
+                    // Show error if any
+                    summaryError?.let { error ->
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.errorContainer
+                            )
+                        ) {
+                            Text(
+                                text = error,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
+                    }
+                }
+                
+                // AI Model Selector Card
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
                     )
                 ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    Column(
+                        modifier = Modifier.padding(16.dp)
                     ) {
-                        Icon(
-                            Icons.Default.Info,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(end = 12.dp)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.Info,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(end = 12.dp)
+                            )
+                            Text(
+                                text = "AI Model",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        
+                        Text(
+                            text = "Select the Gemini model for AI responses",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
                         )
-                        Column {
-                            Text(
-                                text = "Current Model",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                        
+                        var aiModelExpanded by remember { mutableStateOf(false) }
+                        val selectedModelName = ChatSettingsManager.AVAILABLE_AI_MODELS.find { it.first == aiModelId }?.second ?: "Gemini 2.5 Flash"
+                        
+                        ExposedDropdownMenuBox(
+                            expanded = aiModelExpanded,
+                            onExpandedChange = { aiModelExpanded = !aiModelExpanded }
+                        ) {
+                            OutlinedTextField(
+                                value = selectedModelName,
+                                onValueChange = {},
+                                readOnly = true,
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = aiModelExpanded) },
+                                modifier = Modifier.menuAnchor().fillMaxWidth()
                             )
-                            Text(
-                                text = "gemini-3-flash-preview",
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.Medium
-                            )
+                            ExposedDropdownMenu(
+                                expanded = aiModelExpanded,
+                                onDismissRequest = { aiModelExpanded = false }
+                            ) {
+                                ChatSettingsManager.AVAILABLE_AI_MODELS.forEach { (modelId, modelName) ->
+                                    DropdownMenuItem(
+                                        text = { Text(modelName) },
+                                        onClick = {
+                                            scope.launch { chatSettingsManager.setAiModelId(modelId) }
+                                            aiModelExpanded = false
+                                        },
+                                        leadingIcon = if (modelId == aiModelId) {
+                                            { Icon(Icons.Default.Check, contentDescription = null) }
+                                        } else null
+                                    )
+                                }
+                            }
                         }
                     }
                 }

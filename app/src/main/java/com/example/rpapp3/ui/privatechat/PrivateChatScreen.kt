@@ -27,6 +27,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.rpapp3.data.model.ChatMessage
 import com.example.rpapp3.data.model.Character
+import com.example.rpapp3.viewmodel.DisplayFilterSettings
 import com.example.rpapp3.viewmodel.PrivateChatViewModel
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -49,6 +50,9 @@ fun PrivateChatScreen(
     
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    
+    // Display filter settings
+    val displayFilterSettings by viewModel.displayFilterSettings.collectAsState()
     
     // Initialize
     LaunchedEffect(characterId, worldId) {
@@ -98,7 +102,8 @@ fun PrivateChatScreen(
                 items(messages, key = { it.id }) { message ->
                     MessageBubble(
                         message = message,
-                        character = character
+                        character = character,
+                        displayFilterSettings = displayFilterSettings
                     )
                 }
                 
@@ -194,12 +199,26 @@ private fun PrivateChatTopBar(
 @Composable
 private fun MessageBubble(
     message: ChatMessage,
-    character: Character?
+    character: Character?,
+    displayFilterSettings: DisplayFilterSettings = DisplayFilterSettings()
 ) {
     val isUser = message.isUser
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
     val timeString = remember(message.timestamp) { 
         timeFormat.format(Date(message.timestamp)) 
+    }
+    
+    // Apply display filter to AI messages (not user messages)
+    val displayText = remember(message.text, isUser, displayFilterSettings) {
+        if (!isUser && displayFilterSettings.enabled) {
+            extractBracketedText(
+                text = message.text,
+                openBracket = displayFilterSettings.openBracket,
+                closeBracket = displayFilterSettings.closeBracket
+            )
+        } else {
+            message.text
+        }
     }
     
     Row(
@@ -260,7 +279,7 @@ private fun MessageBubble(
             ) {
                 SelectionContainer {
                     Text(
-                        text = message.text,
+                        text = displayText,
                         color = if (isUser) {
                             MaterialTheme.colorScheme.onPrimary
                         } else {
@@ -422,5 +441,52 @@ private fun ChatInput(
                 )
             }
         }
+    }
+}
+
+/**
+ * Extracts all text segments within the specified brackets and joins them.
+ * For example, with openBracket="[\"" and closeBracket="\"]":
+ * Input: "Hello! [\"World\"] And [\"More\"]"
+ * Output: "World More"
+ * 
+ * If no bracketed text is found, returns the original text.
+ */
+private fun extractBracketedText(
+    text: String,
+    openBracket: String,
+    closeBracket: String
+): String {
+    if (openBracket.isEmpty() || closeBracket.isEmpty()) {
+        return text
+    }
+    
+    val extractedSegments = mutableListOf<String>()
+    var currentIndex = 0
+    
+    while (currentIndex < text.length) {
+        val startIndex = text.indexOf(openBracket, currentIndex)
+        if (startIndex == -1) {
+            break
+        }
+        
+        val contentStart = startIndex + openBracket.length
+        val endIndex = text.indexOf(closeBracket, contentStart)
+        if (endIndex == -1) {
+            break
+        }
+        
+        val extractedContent = text.substring(contentStart, endIndex)
+        if (extractedContent.isNotBlank()) {
+            extractedSegments.add(extractedContent.trim())
+        }
+        
+        currentIndex = endIndex + closeBracket.length
+    }
+    
+    return if (extractedSegments.isNotEmpty()) {
+        extractedSegments.joinToString(" ")
+    } else {
+        text // Return original text if no brackets found
     }
 }

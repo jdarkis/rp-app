@@ -87,12 +87,6 @@ class AITextFieldService(private val context: Context) {
                     SafetySetting(HarmCategory.HATE_SPEECH, BlockThreshold.NONE),
                     SafetySetting(HarmCategory.SEXUALLY_EXPLICIT, BlockThreshold.NONE),
                     SafetySetting(HarmCategory.DANGEROUS_CONTENT, BlockThreshold.NONE)
-                ),
-                tools = emptyList(),
-                toolConfig = ToolConfig(
-                    functionCallingConfig = FunctionCallingConfig(
-                        mode = FunctionCallingConfig.Mode.NONE
-                    )
                 )
             )
             

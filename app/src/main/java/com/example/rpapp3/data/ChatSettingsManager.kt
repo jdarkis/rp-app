@@ -59,11 +59,56 @@ class ChatSettingsManager private constructor(private val context: Context) {
         // TTS Defaults
         const val DEFAULT_TTS_MODEL_ID = "eleven_v3"
         const val DEFAULT_NARRATOR_VOICE_ID = ""
+        
+        // AI Model Default
+        const val DEFAULT_AI_MODEL_ID = "gemini-3-flash-preview"
+        
+        // Available AI Models
+        val AVAILABLE_AI_MODELS = listOf(
+            "gemini-3-flash-preview" to "Gemini 3 Flash Preview",
+            "gemini-3-pro-preview" to "Gemini 3 Pro Preview",
+            "gemini-2.5-flash" to "Gemini 2.5 Flash",
+            "gemini-2.5-flash-lite" to "Gemini 2.5 Flash Lite",
+            "gemini-2.5-pro" to "Gemini 2.5 Pro"
+        )
+        
+        // Default Prompts for Private Chat
+        const val DEFAULT_CONVERSATION_STYLE_PROMPT = """You are {CHARACTER_NAME}. Your output must always follow this structure: first, you may write your internal thoughts or narrate your inner state for your own reference. However, the final message you send to the user must be enclosed in square brackets and quotation marks (e.g., ["..."]).
+
+Communication Guidelines:
+
+Direct Conversation: This is a real-time messaging exchange. Treat it like a chat app.
+
+First Person Only: Never write in the third person. Use "I" and "me."
+
+No Narrative Action Tags: Do not use asterisks or parentheses to describe actions (no nods or (smiles)).
+
+Character Accuracy: Respond strictly as {CHARACTER_NAME} would speak.
+
+Conversational Tone: Keep your messages natural, casual, and brief where appropriate.
+
+Limited Emojis: Use emojis only if they fit the character’s personality. Do not use them in every message; use them sparingly to emphasize specific points, rather than as a habit.
+
+Natural Action Expression: To express an action or feeling, incorporate it into the text naturally.
+
+Example: Instead of writing "sighs", write "Ugh..." or "Seriously?"
+
+Output Format Example: Internal Thought: I'm feeling a bit annoyed that they're late again, but I'll try to be cool about it. ["Hey, are you almost here? I've been waiting for a while..."]"""
+        
+        const val DEFAULT_RESPONSE_LENGTH_PROMPT_SHORT = "Keep messages SHORT - 1-3 sentences max, like quick texts."
+        const val DEFAULT_RESPONSE_LENGTH_PROMPT_MEDIUM = "Keep messages MODERATE - a short paragraph, conversational."
+        const val DEFAULT_RESPONSE_LENGTH_PROMPT_LONG = "You can write LONGER messages when appropriate."
+        const val DEFAULT_RESPONSE_LENGTH_PROMPT_VERY_LONG = "Write as much as needed to fully express yourself."
+        
+        // Default display filter brackets
+        const val DEFAULT_DISPLAY_FILTER_OPEN_BRACKET = "[\""
+        const val DEFAULT_DISPLAY_FILTER_CLOSE_BRACKET = "\"]"
     }
 
     // Preference Keys
     private val FILTER_MODE_KEY = stringPreferencesKey("message_filter_mode")
     private val CUSTOM_DELIMITER_KEY = stringPreferencesKey("custom_delimiter")
+    private val CUSTOM_DELIMITERS_KEY = stringPreferencesKey("custom_delimiters") // Pipe-separated list of fallback delimiters
     private val PARAGRAPH_COUNT_KEY = intPreferencesKey("paragraph_count")
     private val STREAMING_ENABLED_KEY = booleanPreferencesKey("streaming_enabled")
     private val TEMPERATURE_KEY = floatPreferencesKey("temperature")
@@ -94,6 +139,9 @@ class ChatSettingsManager private constructor(private val context: Context) {
     // Narrator Language Setting
     private val NARRATOR_LANGUAGE_KEY = stringPreferencesKey("narrator_language")
     
+    // AI Model Setting
+    private val AI_MODEL_ID_KEY = stringPreferencesKey("ai_model_id")
+    
     // Private Chat TTS Settings (separate from normal chat settings)
     private val PRIVATE_TTS_ENABLED_KEY = booleanPreferencesKey("private_tts_enabled")
     private val PRIVATE_AUTO_TTS_ENABLED_KEY = booleanPreferencesKey("private_auto_tts_enabled")
@@ -102,7 +150,16 @@ class ChatSettingsManager private constructor(private val context: Context) {
     // Private Chat Advanced Settings (separate from normal chat)
     private val PRIVATE_THINKING_ENABLED_KEY = booleanPreferencesKey("private_thinking_enabled")
     private val PRIVATE_UNLOCK_PROMPT_ENABLED_KEY = booleanPreferencesKey("private_unlock_prompt_enabled")
-
+    
+    // Private Chat Custom Prompts
+    private val PRIVATE_CONVERSATION_STYLE_PROMPT_KEY = stringPreferencesKey("private_conversation_style_prompt")
+    private val PRIVATE_RESPONSE_LENGTH_PROMPT_KEY = stringPreferencesKey("private_response_length_prompt")
+    
+    // Private Chat Display Filter Settings
+    private val PRIVATE_DISPLAY_FILTER_ENABLED_KEY = booleanPreferencesKey("private_display_filter_enabled")
+    private val PRIVATE_DISPLAY_FILTER_OPEN_BRACKET_KEY = stringPreferencesKey("private_display_filter_open_bracket")
+    private val PRIVATE_DISPLAY_FILTER_CLOSE_BRACKET_KEY = stringPreferencesKey("private_display_filter_close_bracket")
+    
     // Message Display Settings
     val filterMode: Flow<MessageFilterMode> = context.chatSettingsDataStore.data
         .map { preferences ->
@@ -122,6 +179,22 @@ class ChatSettingsManager private constructor(private val context: Context) {
     val customDelimiter: Flow<String> = context.chatSettingsDataStore.data
         .map { preferences ->
             preferences[CUSTOM_DELIMITER_KEY] ?: DEFAULT_DELIMITER
+        }
+
+    /**
+     * Flow of custom delimiters as a list. First delimiter is primary, rest are fallbacks.
+     * If a delimiter is found in the message, text after its last occurrence is shown.
+     * Tries each delimiter in order until one is found.
+     */
+    val customDelimiters: Flow<List<String>> = context.chatSettingsDataStore.data
+        .map { preferences ->
+            val storedValue = preferences[CUSTOM_DELIMITERS_KEY]
+            if (storedValue.isNullOrBlank()) {
+                // Fall back to single delimiter for backward compatibility
+                listOf(preferences[CUSTOM_DELIMITER_KEY] ?: DEFAULT_DELIMITER)
+            } else {
+                storedValue.split("|").filter { it.isNotEmpty() }
+            }
         }
 
     val paragraphCount: Flow<Int> = context.chatSettingsDataStore.data
@@ -272,6 +345,12 @@ class ChatSettingsManager private constructor(private val context: Context) {
             preferences[NARRATOR_LANGUAGE_KEY] ?: "en" // Default English
         }
 
+    // AI Model Setting
+    val aiModelId: Flow<String> = context.chatSettingsDataStore.data
+        .map { preferences ->
+            preferences[AI_MODEL_ID_KEY] ?: DEFAULT_AI_MODEL_ID
+        }
+
     // Private Chat TTS Settings (separate from normal chat)
     val privateTtsEnabled: Flow<Boolean> = context.chatSettingsDataStore.data
         .map { preferences ->
@@ -299,6 +378,33 @@ class ChatSettingsManager private constructor(private val context: Context) {
             preferences[PRIVATE_UNLOCK_PROMPT_ENABLED_KEY] ?: false // Default OFF
         }
 
+    // Private Chat Custom Prompts Flows
+    val privateConversationStylePrompt: Flow<String> = context.chatSettingsDataStore.data
+        .map { preferences ->
+            preferences[PRIVATE_CONVERSATION_STYLE_PROMPT_KEY] ?: "" // Empty = use default
+        }
+
+    val privateResponseLengthPrompt: Flow<String> = context.chatSettingsDataStore.data
+        .map { preferences ->
+            preferences[PRIVATE_RESPONSE_LENGTH_PROMPT_KEY] ?: "" // Empty = use default
+        }
+
+    // Private Chat Display Filter Flows
+    val privateDisplayFilterEnabled: Flow<Boolean> = context.chatSettingsDataStore.data
+        .map { preferences ->
+            preferences[PRIVATE_DISPLAY_FILTER_ENABLED_KEY] ?: false // Default OFF
+        }
+
+    val privateDisplayFilterOpenBracket: Flow<String> = context.chatSettingsDataStore.data
+        .map { preferences ->
+            preferences[PRIVATE_DISPLAY_FILTER_OPEN_BRACKET_KEY] ?: DEFAULT_DISPLAY_FILTER_OPEN_BRACKET
+        }
+
+    val privateDisplayFilterCloseBracket: Flow<String> = context.chatSettingsDataStore.data
+        .map { preferences ->
+            preferences[PRIVATE_DISPLAY_FILTER_CLOSE_BRACKET_KEY] ?: DEFAULT_DISPLAY_FILTER_CLOSE_BRACKET
+        }
+
     // Setters for Message Display
     suspend fun setFilterMode(mode: MessageFilterMode) {
         context.chatSettingsDataStore.edit { preferences ->
@@ -309,6 +415,20 @@ class ChatSettingsManager private constructor(private val context: Context) {
     suspend fun setCustomDelimiter(delimiter: String) {
         context.chatSettingsDataStore.edit { preferences ->
             preferences[CUSTOM_DELIMITER_KEY] = delimiter
+        }
+    }
+
+    /**
+     * Set a list of custom delimiters for message filtering.
+     * Delimiters are tried in order - first match is used.
+     */
+    suspend fun setCustomDelimiters(delimiters: List<String>) {
+        context.chatSettingsDataStore.edit { preferences ->
+            preferences[CUSTOM_DELIMITERS_KEY] = delimiters.filter { it.isNotEmpty() }.joinToString("|")
+            // Also update single delimiter for backward compatibility
+            if (delimiters.isNotEmpty()) {
+                preferences[CUSTOM_DELIMITER_KEY] = delimiters.first()
+            }
         }
     }
 
@@ -453,6 +573,12 @@ class ChatSettingsManager private constructor(private val context: Context) {
         }
     }
 
+    suspend fun setAiModelId(modelId: String) {
+        context.chatSettingsDataStore.edit { preferences ->
+            preferences[AI_MODEL_ID_KEY] = modelId
+        }
+    }
+
     // Private Chat TTS Setters
     suspend fun setPrivateTtsEnabled(enabled: Boolean) {
         context.chatSettingsDataStore.edit { preferences ->
@@ -482,6 +608,38 @@ class ChatSettingsManager private constructor(private val context: Context) {
     suspend fun setPrivateUnlockPromptEnabled(enabled: Boolean) {
         context.chatSettingsDataStore.edit { preferences ->
             preferences[PRIVATE_UNLOCK_PROMPT_ENABLED_KEY] = enabled
+        }
+    }
+
+    // Private Chat Custom Prompts Setters
+    suspend fun setPrivateConversationStylePrompt(prompt: String) {
+        context.chatSettingsDataStore.edit { preferences ->
+            preferences[PRIVATE_CONVERSATION_STYLE_PROMPT_KEY] = prompt
+        }
+    }
+
+    suspend fun setPrivateResponseLengthPrompt(prompt: String) {
+        context.chatSettingsDataStore.edit { preferences ->
+            preferences[PRIVATE_RESPONSE_LENGTH_PROMPT_KEY] = prompt
+        }
+    }
+
+    // Private Chat Display Filter Setters
+    suspend fun setPrivateDisplayFilterEnabled(enabled: Boolean) {
+        context.chatSettingsDataStore.edit { preferences ->
+            preferences[PRIVATE_DISPLAY_FILTER_ENABLED_KEY] = enabled
+        }
+    }
+
+    suspend fun setPrivateDisplayFilterOpenBracket(bracket: String) {
+        context.chatSettingsDataStore.edit { preferences ->
+            preferences[PRIVATE_DISPLAY_FILTER_OPEN_BRACKET_KEY] = bracket
+        }
+    }
+
+    suspend fun setPrivateDisplayFilterCloseBracket(bracket: String) {
+        context.chatSettingsDataStore.edit { preferences ->
+            preferences[PRIVATE_DISPLAY_FILTER_CLOSE_BRACKET_KEY] = bracket
         }
     }
 
@@ -518,6 +676,8 @@ class ChatSettingsManager private constructor(private val context: Context) {
             preferences[UNLOCK_PROMPT_ENABLED_KEY] = false
             // Narrator Language default
             preferences[NARRATOR_LANGUAGE_KEY] = "en"
+            // AI Model default
+            preferences[AI_MODEL_ID_KEY] = DEFAULT_AI_MODEL_ID
         }
     }
 
@@ -549,7 +709,8 @@ class ChatSettingsManager private constructor(private val context: Context) {
             narratorVoiceId = narratorVoiceId.first(),
             ttsModelId = ttsModelId.first(),
             unlockPromptEnabled = unlockPromptEnabled.first(),
-            narratorLanguage = narratorLanguage.first()
+            narratorLanguage = narratorLanguage.first(),
+            aiModelId = aiModelId.first()
         )
     }
 
@@ -566,7 +727,14 @@ class ChatSettingsManager private constructor(private val context: Context) {
             ttsModelId = ttsModelId.first(),
             // Advanced settings
             thinkingEnabled = privateThinkingEnabled.first(),
-            unlockPromptEnabled = privateUnlockPromptEnabled.first()
+            unlockPromptEnabled = privateUnlockPromptEnabled.first(),
+            // Custom prompts
+            conversationStylePrompt = privateConversationStylePrompt.first(),
+            responseLengthPrompt = privateResponseLengthPrompt.first(),
+            // Display filter settings
+            displayFilterEnabled = privateDisplayFilterEnabled.first(),
+            displayFilterOpenBracket = privateDisplayFilterOpenBracket.first(),
+            displayFilterCloseBracket = privateDisplayFilterCloseBracket.first()
         )
     }
 }
@@ -599,7 +767,9 @@ data class ChatSettings(
     // Unlock Prompt
     val unlockPromptEnabled: Boolean = false,
     // Narrator Language (default English)
-    val narratorLanguage: String = "en"
+    val narratorLanguage: String = "en",
+    // AI Model
+    val aiModelId: String = ChatSettingsManager.DEFAULT_AI_MODEL_ID
 )
 
 /**
@@ -614,5 +784,12 @@ data class PrivateChatSettings(
     val ttsModelId: String = ChatSettingsManager.DEFAULT_TTS_MODEL_ID,
     // Advanced settings for private chat
     val thinkingEnabled: Boolean = false,
-    val unlockPromptEnabled: Boolean = false
+    val unlockPromptEnabled: Boolean = false,
+    // Custom system prompts (empty = use default)
+    val conversationStylePrompt: String = "",
+    val responseLengthPrompt: String = "",
+    // Display filter settings
+    val displayFilterEnabled: Boolean = false,
+    val displayFilterOpenBracket: String = ChatSettingsManager.DEFAULT_DISPLAY_FILTER_OPEN_BRACKET,
+    val displayFilterCloseBracket: String = ChatSettingsManager.DEFAULT_DISPLAY_FILTER_CLOSE_BRACKET
 )
