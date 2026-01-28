@@ -44,6 +44,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.example.rpapp3.viewmodel.CharacterViewModel
+import com.example.rpapp3.data.CloudinaryConfig
 import me.saket.telephoto.zoomable.coil.ZoomableAsyncImage
 import me.saket.telephoto.zoomable.rememberZoomableImageState
 import me.saket.telephoto.zoomable.rememberZoomableState
@@ -133,7 +134,7 @@ fun CharacterDetailScreen(
                         val avatarUrl = char.profilePictureUrl ?: char.photoUrls.firstOrNull()
                         if (avatarUrl != null) {
                             AsyncImage(
-                                model = avatarUrl,
+                                model = CloudinaryConfig.getOptimizedUrl(avatarUrl, 200, 200),
                                 contentDescription = char.name,
                                 modifier = Modifier
                                     .size(80.dp)
@@ -254,7 +255,7 @@ fun CharacterDetailScreen(
                                 items(char.photoUrls.size) { index ->
                                     val url = char.photoUrls[index]
                                     AsyncImage(
-                                        model = url,
+                                        model = CloudinaryConfig.getOptimizedUrl(url, 300, 300),
                                         contentDescription = null,
                                         modifier = Modifier
                                             .aspectRatio(1f)
@@ -293,7 +294,7 @@ fun CharacterDetailScreen(
                                 items(char.nsfwPhotoUrls.size) { index ->
                                     val url = char.nsfwPhotoUrls[index]
                                     AsyncImage(
-                                        model = url,
+                                        model = CloudinaryConfig.getOptimizedUrl(url, 300, 300),
                                         contentDescription = null,
                                         modifier = Modifier
                                             .aspectRatio(1f)
@@ -332,7 +333,7 @@ fun CharacterDetailScreen(
                                 items(char.spicyNsfwPhotoUrls.size) { index ->
                                     val url = char.spicyNsfwPhotoUrls[index]
                                     AsyncImage(
-                                        model = url,
+                                        model = CloudinaryConfig.getOptimizedUrl(url, 300, 300),
                                         contentDescription = null,
                                         modifier = Modifier
                                             .aspectRatio(1f)
@@ -365,7 +366,7 @@ fun CharacterDetailScreen(
                                 ) {
                                     // Video Thumbnail
                                     AsyncImage(
-                                        model = url,
+                                        model = CloudinaryConfig.getVideoThumbnailUrl(url, 300, 300),
                                         contentDescription = "Video Thumbnail",
                                         modifier = Modifier.fillMaxSize(),
                                         contentScale = ContentScale.Crop

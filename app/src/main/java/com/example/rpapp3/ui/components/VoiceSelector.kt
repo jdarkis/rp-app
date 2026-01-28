@@ -21,28 +21,13 @@ import androidx.compose.ui.unit.dp
 import com.example.rpapp3.data.TTSManager
 import com.example.rpapp3.data.TTSPlaybackState
 import com.example.rpapp3.data.model.Voice
+import com.example.rpapp3.core.util.LanguageUtils
 
 /**
- * Common language options for character TTS
+ * Re-export SUPPORTED_LANGUAGES for backward compatibility with existing imports.
+ * @see LanguageUtils.SUPPORTED_LANGUAGES for the canonical source.
  */
-val SUPPORTED_LANGUAGES = listOf(
-    "en" to "English",
-    "es" to "Spanish",
-    "fr" to "French",
-    "de" to "German",
-    "it" to "Italian",
-    "pt" to "Portuguese",
-    "pl" to "Polish",
-    "ru" to "Russian",
-    "ja" to "Japanese",
-    "ko" to "Korean",
-    "zh" to "Chinese",
-    "ar" to "Arabic",
-    "hi" to "Hindi",
-    "tr" to "Turkish",
-    "nl" to "Dutch",
-    "sv" to "Swedish"
-)
+val SUPPORTED_LANGUAGES = LanguageUtils.SUPPORTED_LANGUAGES
 
 val GENDER_OPTIONS = listOf(
     null to "Any",

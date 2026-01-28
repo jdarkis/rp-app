@@ -28,7 +28,9 @@ fun SettingsScreen(
     onNavigateToElevenLabsApiKeys: () -> Unit,
     onNavigateToAppearance: () -> Unit,
     onNavigateToUnlockPrompt: () -> Unit,
-    onNavigateToElevenLabsVoices: () -> Unit
+    onNavigateToElevenLabsVoices: () -> Unit,
+    onNavigateToInworldApiKeys: () -> Unit,
+    onNavigateToInworldVoices: () -> Unit
 ) {
     Scaffold(
         topBar = {
@@ -104,6 +106,20 @@ fun SettingsScreen(
                     title = "ElevenLabs API Keys",
                     subtitle = "Manage your ElevenLabs API keys for TTS",
                     onClick = onNavigateToElevenLabsApiKeys
+                )
+                
+                SettingsCategoryItem(
+                    icon = Icons.Default.Mic,
+                    title = "Inworld Voices",
+                    subtitle = "Manage Inworld characters for TTS",
+                    onClick = onNavigateToInworldVoices
+                )
+                
+                SettingsCategoryItem(
+                    icon = Icons.Default.RecordVoiceOver,
+                    title = "Inworld API Keys",
+                    subtitle = "Manage Inworld Studio API keys",
+                    onClick = onNavigateToInworldApiKeys
                 )
             }
         }

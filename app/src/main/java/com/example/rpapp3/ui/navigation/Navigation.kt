@@ -20,6 +20,8 @@ import com.example.rpapp3.ui.settings.ElevenLabsApiKeysScreen
 import com.example.rpapp3.ui.settings.ElevenLabsVoicesScreen
 import com.example.rpapp3.ui.settings.SettingsScreen
 import com.example.rpapp3.ui.settings.UnlockPromptScreen
+import com.example.rpapp3.ui.settings.InworldApiKeysScreen
+import com.example.rpapp3.ui.settings.InworldVoicesScreen
 import com.example.rpapp3.ui.world.CreateWorldScreen
 import com.example.rpapp3.ui.world.EditWorldScreen
 import com.example.rpapp3.ui.world.WorldDetailScreen
@@ -254,7 +256,9 @@ fun AppNavigation(navController: NavHostController) {
                 onNavigateToElevenLabsApiKeys = { navController.navigate(Routes.SettingsElevenLabsApiKeys.route) },
                 onNavigateToAppearance = { navController.navigate(Routes.SettingsAppearance.route) },
                 onNavigateToUnlockPrompt = { navController.navigate(Routes.SettingsUnlockPrompt.route) },
-                onNavigateToElevenLabsVoices = { navController.navigate(Routes.SettingsElevenLabsVoices.route) }
+                onNavigateToElevenLabsVoices = { navController.navigate(Routes.SettingsElevenLabsVoices.route) },
+                onNavigateToInworldApiKeys = { navController.navigate(Routes.SettingsInworldApiKeys.route) },
+                onNavigateToInworldVoices = { navController.navigate(Routes.SettingsInworldVoices.route) }
             )
         }
         
@@ -284,6 +288,18 @@ fun AppNavigation(navController: NavHostController) {
         
         composable(Routes.SettingsElevenLabsVoices.route) {
             ElevenLabsVoicesScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+        
+        composable(Routes.SettingsInworldApiKeys.route) {
+            InworldApiKeysScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+        
+        composable(Routes.SettingsInworldVoices.route) {
+            InworldVoicesScreen(
                 onNavigateBack = { navController.popBackStack() }
             )
         }

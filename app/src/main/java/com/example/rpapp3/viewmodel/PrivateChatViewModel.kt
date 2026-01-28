@@ -10,6 +10,7 @@ import com.example.rpapp3.data.ApiKeyManager
 import com.example.rpapp3.data.ChatSettings
 import com.example.rpapp3.data.ChatSettingsManager
 import com.example.rpapp3.data.ElevenLabsService
+import com.example.rpapp3.data.InworldService
 import com.example.rpapp3.data.PrivateChatSettings
 import com.example.rpapp3.data.ResponseLength
 import com.example.rpapp3.data.SafetyThreshold
@@ -21,6 +22,10 @@ import com.example.rpapp3.data.model.ChatMessage
 import com.example.rpapp3.data.repository.CharacterRepository
 import com.example.rpapp3.data.repository.ChatRepository
 import com.example.rpapp3.data.repository.SettingsRepository
+import com.example.rpapp3.core.util.LanguageUtils
+import com.example.rpapp3.core.util.SafetySettingsBuilder
+import com.example.rpapp3.core.constants.AppConstants
+import com.example.rpapp3.core.constants.ErrorMessages
 import com.google.ai.client.generativeai.GenerativeModel
 import com.google.ai.client.generativeai.type.BlockThreshold
 import com.google.ai.client.generativeai.type.FunctionCallingConfig
@@ -51,6 +56,7 @@ class PrivateChatViewModel : ViewModel() {
     private var apiKeyManager: ApiKeyManager? = null
     private var chatSettingsManager: ChatSettingsManager? = null
     private var elevenLabsService: ElevenLabsService? = null
+    private var inworldService: InworldService? = null
     private var _ttsManager: TTSManager? = null
     private var appContext: Context? = null
     
@@ -111,6 +117,7 @@ class PrivateChatViewModel : ViewModel() {
             apiKeyManager = ApiKeyManager.getInstance(context)
             chatSettingsManager = ChatSettingsManager.getInstance(context)
             elevenLabsService = ElevenLabsService.getInstance(context)
+            inworldService = InworldService.getInstance(context)
             _ttsManager = TTSManager.getInstance(context)
             viewModelScope.launch {
                 apiKeyManager?.initializeDefaults()
@@ -125,6 +132,7 @@ class PrivateChatViewModel : ViewModel() {
                     closeBracket = privateChatSettings.displayFilterCloseBracket
                 )
                 elevenLabsService?.initialize()
+                inworldService?.initialize()
             }
         }
     }
@@ -169,7 +177,7 @@ class PrivateChatViewModel : ViewModel() {
                     
                     // Load PAGINATED messages for UI display (only recent messages)
                     try {
-                        val (recentMessages, hasMore) = chatRepository.getMessagesPagedInitial(chat.id, 20)
+                        val (recentMessages, hasMore) = chatRepository.getMessagesPagedInitial(chat.id, AppConstants.INITIAL_PAGE_SIZE)
                         _messages.addAll(recentMessages)
                         _hasMoreMessages.value = hasMore
                         if (recentMessages.isNotEmpty()) {
@@ -225,7 +233,7 @@ class PrivateChatViewModel : ViewModel() {
                 val (olderMessages, hasMore) = chatRepository.getMessagesOlder(
                     chatId = chatId,
                     beforeTimestamp = oldestLoadedTimestamp,
-                    limit = 50
+                    limit = AppConstants.LOAD_MORE_PAGE_SIZE
                 )
                 
                 if (olderMessages.isNotEmpty()) {
@@ -236,7 +244,7 @@ class PrivateChatViewModel : ViewModel() {
                 
                 _hasMoreMessages.value = hasMore
             } catch (e: Exception) {
-                _error.value = "Failed to load more messages: ${e.message}"
+                _error.value = ErrorMessages.loadMoreFailed(e.message)
             } finally {
                 _isLoadingMore.value = false
             }
@@ -343,7 +351,7 @@ class PrivateChatViewModel : ViewModel() {
             }
             
             // Language
-            val languageName = getLanguageName(character.language)
+            val languageName = LanguageUtils.getLanguageName(character.language)
             appendLine("Language: You MUST speak in $languageName.")
             appendLine()
             
@@ -425,47 +433,13 @@ class PrivateChatViewModel : ViewModel() {
         }
     }
     
-    private fun getLanguageName(code: String): String {
-        return when (code) {
-            "en" -> "English"
-            "ru" -> "Russian"
-            "es" -> "Spanish"
-            "fr" -> "French"
-            "de" -> "German"
-            "it" -> "Italian"
-            "pt" -> "Portuguese"
-            "zh" -> "Chinese"
-            "ja" -> "Japanese"
-            "ko" -> "Korean"
-            "ar" -> "Arabic"
-            "hi" -> "Hindi"
-            "pl" -> "Polish"
-            "uk" -> "Ukrainian"
-            "lt" -> "Lithuanian"
-            "tr" -> "Turkish"
-            "nl" -> "Dutch"
-            "sv" -> "Swedish"
-            else -> code
-        }
-    }
+    /**
+     * Build safety settings from user preferences.
+     * @see SafetySettingsBuilder for the centralized implementation.
+     */
+    private fun buildSafetySettings(): List<SafetySetting> = 
+        SafetySettingsBuilder.build(currentSettings)
     
-    private fun buildSafetySettings(): List<SafetySetting> {
-        fun mapThreshold(threshold: SafetyThreshold): BlockThreshold {
-            return when (threshold) {
-                SafetyThreshold.BLOCK_NONE -> BlockThreshold.NONE
-                SafetyThreshold.BLOCK_ONLY_HIGH -> BlockThreshold.ONLY_HIGH
-                SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE -> BlockThreshold.MEDIUM_AND_ABOVE
-                SafetyThreshold.BLOCK_LOW_AND_ABOVE -> BlockThreshold.LOW_AND_ABOVE
-            }
-        }
-        
-        return listOf(
-            SafetySetting(HarmCategory.HARASSMENT, mapThreshold(currentSettings.safetyHarassment)),
-            SafetySetting(HarmCategory.HATE_SPEECH, mapThreshold(currentSettings.safetyHateSpeech)),
-            SafetySetting(HarmCategory.SEXUALLY_EXPLICIT, mapThreshold(currentSettings.safetySexuallyExplicit)),
-            SafetySetting(HarmCategory.DANGEROUS_CONTENT, mapThreshold(currentSettings.safetyDangerousContent))
-        )
-    }
     
     fun sendMessage(userMessage: String) {
         if (userMessage.isBlank() || _isLoading.value) return
@@ -793,7 +767,12 @@ class PrivateChatViewModel : ViewModel() {
                 val voiceId = char.voiceId ?: currentSettings.narratorVoiceId
                 val modelId = currentSettings.ttsModelId
                 
-                val audioResult = elevenLabsService?.textToSpeech(text, voiceId, modelId)
+                val audioResult = if (voiceId.startsWith("workspaces/")) {
+                    inworldService?.textToSpeech(text, voiceId, modelId)
+                } else {
+                    elevenLabsService?.textToSpeech(text, voiceId, modelId)
+                }
+                
                 audioResult?.getOrNull()?.let { audioData ->
                     _ttsManager?.playFromBytes(audioData, null)
                 }

@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.rpapp3.data.model.Character
+import com.example.rpapp3.data.model.Chat
 import com.example.rpapp3.viewmodel.ChatViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -30,10 +31,17 @@ fun NewChatScreen(
     onChatCreated: (String) -> Unit
 ) {
     val characters by viewModel.characters.collectAsState()
+    val chats by viewModel.chats.collectAsState()
     
     var title by remember { mutableStateOf("") }
     var selectedCharacterIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    
+    // Extend chat state
+    var extendEnabled by remember { mutableStateOf(false) }
+    var selectedExtendChatId by remember { mutableStateOf<String?>(null) }
+    var extendMessageCount by remember { mutableStateOf(10f) }
+    var extendDropdownExpanded by remember { mutableStateOf(false) }
     
     val snackbarHostState = remember { SnackbarHostState() }
     
@@ -46,6 +54,7 @@ fun NewChatScreen(
     
     LaunchedEffect(worldId) {
         viewModel.loadCharactersForSelection(worldId)
+        viewModel.loadChats(worldId)
     }
     
     LaunchedEffect(errorMessage) {
@@ -54,6 +63,9 @@ fun NewChatScreen(
             errorMessage = null
         }
     }
+    
+    // Filter out private chats for extend selection
+    val availableChatsForExtend = chats.filter { !it.isPrivateChat }
     
     Scaffold(
         topBar = {
@@ -148,6 +160,113 @@ fun NewChatScreen(
                             enabled = !viewModel.isLoading
                         )
                     }
+                    
+                    // Extend Chat Section
+                    item {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Extend from existing chat",
+                                            style = MaterialTheme.typography.titleSmall
+                                        )
+                                        Text(
+                                            text = "Copy messages from another chat",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Switch(
+                                        checked = extendEnabled,
+                                        onCheckedChange = { 
+                                            extendEnabled = it
+                                            if (!it) {
+                                                selectedExtendChatId = null
+                                            }
+                                        },
+                                        enabled = availableChatsForExtend.isNotEmpty()
+                                    )
+                                }
+                                
+                                if (extendEnabled && availableChatsForExtend.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    
+                                    // Chat selector dropdown
+                                    ExposedDropdownMenuBox(
+                                        expanded = extendDropdownExpanded,
+                                        onExpandedChange = { extendDropdownExpanded = it }
+                                    ) {
+                                        val selectedChat = availableChatsForExtend.find { it.id == selectedExtendChatId }
+                                        OutlinedTextField(
+                                            value = selectedChat?.title ?: "Select a chat",
+                                            onValueChange = {},
+                                            readOnly = true,
+                                            label = { Text("Source Chat") },
+                                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = extendDropdownExpanded) },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .menuAnchor()
+                                        )
+                                        
+                                        ExposedDropdownMenu(
+                                            expanded = extendDropdownExpanded,
+                                            onDismissRequest = { extendDropdownExpanded = false }
+                                        ) {
+                                            availableChatsForExtend.forEach { chat ->
+                                                DropdownMenuItem(
+                                                    text = { Text(chat.title) },
+                                                    onClick = {
+                                                        selectedExtendChatId = chat.id
+                                                        extendDropdownExpanded = false
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                    
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    
+                                    // Message count slider
+                                    Text(
+                                        text = "Messages to include: ${extendMessageCount.toInt()}",
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    Slider(
+                                        value = extendMessageCount,
+                                        onValueChange = { extendMessageCount = it },
+                                        valueRange = 1f..50f,
+                                        steps = 48,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                                
+                                if (availableChatsForExtend.isEmpty()) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "No existing chats to extend from",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
             
@@ -160,7 +279,9 @@ fun NewChatScreen(
                         title = title.ifBlank { "Chat with ${selectedCharacterIds.size} character(s)" },
                         characterIds = selectedCharacterIds.toList(),
                         onSuccess = onChatCreated,
-                        onError = { errorMessage = it }
+                        onError = { errorMessage = it },
+                        extendFromChatId = if (extendEnabled) selectedExtendChatId else null,
+                        extendMessageCount = extendMessageCount.toInt()
                     )
                 },
                 modifier = Modifier.fillMaxWidth(),

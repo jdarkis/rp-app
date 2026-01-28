@@ -157,6 +157,33 @@ class ChatRepository {
     }
     
     /**
+     * Get the last N messages from a chat (for extending chats)
+     * Returns messages in chronological order (oldest first)
+     * @param chatId The chat to load messages from
+     * @param count Maximum number of messages to retrieve
+     * @return List of messages, up to 'count' most recent, in chronological order
+     */
+    suspend fun getLastNMessages(chatId: String, count: Int): List<ChatMessage> {
+        return try {
+            val docs = chatsCollection
+                .document(chatId)
+                .collection("messages")
+                .orderBy("timestamp", Query.Direction.DESCENDING)
+                .limit(count.toLong())
+                .get()
+                .await()
+            
+            // Reverse to get chronological order (oldest first)
+            docs.documents.mapNotNull { doc ->
+                doc.data?.let { ChatMessage.fromMap(it) }
+            }.reversed()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    
+    /**
      * Get the most recent messages for initial UI display (paginated loading)
      * Returns messages in ascending order (oldest first) for display
      * @param chatId The chat to load messages from

@@ -32,9 +32,11 @@ import com.example.rpapp3.data.CharacterFieldType
 import com.example.rpapp3.ui.components.AIEnhancedTextField
 import com.example.rpapp3.ui.components.GenderSelector
 import com.example.rpapp3.ui.components.LanguageSelector
-import com.example.rpapp3.ui.components.VoiceSelector
+import com.example.rpapp3.ui.components.CharacterVoiceSelector
 import com.example.rpapp3.ui.components.VersionHistoryDialog
 import com.example.rpapp3.viewmodel.CharacterViewModel
+import com.example.rpapp3.data.CloudinaryConfig
+import com.example.rpapp3.data.model.VoiceSource
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,6 +70,7 @@ fun EditCharacterScreen(
     var language by remember { mutableStateOf("en") }
     var gender by remember { mutableStateOf<String?>(null) }
     var voiceId by remember { mutableStateOf<String?>(null) }
+    var voiceSource by remember { mutableStateOf(VoiceSource.ELEVEN_LABS) }
     
     val voices by viewModel.voices.collectAsState()
     val voicesLoading by viewModel.voicesLoading.collectAsState()
@@ -185,6 +188,7 @@ fun EditCharacterScreen(
             language = it.language
             gender = it.gender
             voiceId = it.voiceId
+            voiceSource = it.voiceSource
         }
     }
     
@@ -272,7 +276,7 @@ fun EditCharacterScreen(
                         }
                         currentProfilePictureUrl != null -> {
                             AsyncImage(
-                                model = currentProfilePictureUrl,
+                                model = currentProfilePictureUrl?.let { CloudinaryConfig.getOptimizedUrl(it, 200, 200) },
                                 contentDescription = "Profile picture",
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Crop
@@ -408,10 +412,14 @@ fun EditCharacterScreen(
             )
             
             ttsManager?.let { manager ->
-                VoiceSelector(
+                CharacterVoiceSelector(
                     voices = voices,
                     selectedVoiceId = voiceId,
-                    onVoiceSelected = { voice -> voiceId = voice?.voiceId },
+                    selectedVoiceSource = voiceSource,
+                    onVoiceSelected = { voice, source ->
+                        voiceId = voice?.voiceId
+                        voiceSource = source
+                    },
                     ttsManager = manager,
                     enabled = !viewModel.isLoading,
                     isLoading = voicesLoading,
@@ -596,6 +604,7 @@ fun EditCharacterScreen(
                                 profilePictureUrl = currentProfilePictureUrl,
                                 language = language,
                                 voiceId = voiceId,
+                                voiceSource = voiceSource,
                                 gender = gender
                             ),
                             newProfilePictureUri = newProfilePictureUri,
@@ -672,7 +681,7 @@ fun EditCharacterScreen(
                     ) {
                         items(char.photoUrls) { url ->
                             AsyncImage(
-                                model = url,
+                                model = CloudinaryConfig.getOptimizedUrl(url, 200, 200),
                                 contentDescription = null,
                                 modifier = Modifier
                                     .size(80.dp)
@@ -747,7 +756,7 @@ private fun ExistingMediaRow(
                     }
                 } else {
                     AsyncImage(
-                        model = url,
+                        model = CloudinaryConfig.getOptimizedUrl(url, 200, 200),
                         contentDescription = null,
                         modifier = Modifier
                             .fillMaxSize()

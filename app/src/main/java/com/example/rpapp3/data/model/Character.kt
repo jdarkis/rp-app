@@ -16,6 +16,7 @@ data class Character(
     // TTS Settings
     val language: String = "en",
     val voiceId: String? = null,
+    val voiceSource: VoiceSource = VoiceSource.ELEVEN_LABS, // TTS provider for this character
     val gender: String? = null, // "male", "female", or null
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
@@ -38,6 +39,7 @@ data class Character(
         "profilePictureUrl" to profilePictureUrl,
         "language" to language,
         "voiceId" to voiceId,
+        "voiceSource" to voiceSource.name,
         "gender" to gender,
         "createdAt" to createdAt,
         "updatedAt" to updatedAt
@@ -61,6 +63,9 @@ data class Character(
                 profilePictureUrl = map["profilePictureUrl"] as? String,
                 language = map["language"] as? String ?: "en",
                 voiceId = map["voiceId"] as? String,
+                voiceSource = (map["voiceSource"] as? String)?.let {
+                    try { VoiceSource.valueOf(it) } catch (e: Exception) { VoiceSource.ELEVEN_LABS }
+                } ?: VoiceSource.ELEVEN_LABS,
                 gender = map["gender"] as? String,
                 createdAt = (map["createdAt"] as? Long) ?: System.currentTimeMillis(),
                 updatedAt = (map["updatedAt"] as? Long) ?: System.currentTimeMillis()

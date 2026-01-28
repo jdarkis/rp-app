@@ -1,13 +1,22 @@
 package com.example.rpapp3.data.model
 
 /**
- * Represents an ElevenLabs voice with metadata
+ * Represents the source of the voice
+ */
+enum class VoiceSource {
+    ELEVEN_LABS,
+    INWORLD
+}
+
+/**
+ * Represents a voice with metadata
  */
 data class Voice(
     val voiceId: String,
     val name: String,
     val previewUrl: String? = null,
-    val labels: Map<String, String> = emptyMap()
+    val labels: Map<String, String> = emptyMap(),
+    val source: VoiceSource = VoiceSource.ELEVEN_LABS
 ) {
     val gender: String?
         get() = labels["gender"]

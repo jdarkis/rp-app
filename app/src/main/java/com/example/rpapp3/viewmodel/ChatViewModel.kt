@@ -12,6 +12,7 @@ import com.example.rpapp3.data.ApiKeyManager
 import com.example.rpapp3.data.ChatSettings
 import com.example.rpapp3.data.ChatSettingsManager
 import com.example.rpapp3.data.ElevenLabsService
+import com.example.rpapp3.data.InworldService
 import com.example.rpapp3.data.ResponseLength
 import com.example.rpapp3.data.SafetyThreshold
 import com.example.rpapp3.data.TTSManager
@@ -23,6 +24,7 @@ import com.example.rpapp3.data.model.Character
 import com.example.rpapp3.data.model.Chat
 import com.example.rpapp3.data.model.ChatMessage
 import com.example.rpapp3.data.model.ElevenLabsTTSModels
+import com.example.rpapp3.data.model.InworldTTSModels
 import com.example.rpapp3.data.model.SegmentAudioCache
 import com.example.rpapp3.data.model.SummaryProposal
 import com.example.rpapp3.data.model.World
@@ -34,6 +36,10 @@ import com.example.rpapp3.data.repository.SegmentAudioRepository
 import com.example.rpapp3.data.repository.SettingsRepository
 import com.example.rpapp3.data.repository.VersionHistoryRepository
 import com.example.rpapp3.data.repository.WorldRepository
+import com.example.rpapp3.core.util.LanguageUtils
+import com.example.rpapp3.core.util.SafetySettingsBuilder
+import com.example.rpapp3.core.constants.AppConstants
+import com.example.rpapp3.core.constants.ErrorMessages
 import com.google.ai.client.generativeai.GenerativeModel
 import com.google.ai.client.generativeai.type.BlockThreshold
 import com.google.ai.client.generativeai.type.FunctionCallingConfig
@@ -58,6 +64,7 @@ class ChatViewModel : ViewModel() {
     
     // TTS services
     private var elevenLabsService: ElevenLabsService? = null
+    private var inworldService: InworldService? = null
     private var _ttsManager: TTSManager? = null
     val ttsManager: TTSManager? get() = _ttsManager
     
@@ -137,6 +144,7 @@ class ChatViewModel : ViewModel() {
             apiKeyManager = ApiKeyManager.getInstance(context)
             chatSettingsManager = ChatSettingsManager.getInstance(context)
             elevenLabsService = ElevenLabsService.getInstance(context)
+            inworldService = InworldService.getInstance(context)
             _ttsManager = TTSManager.getInstance(context)
             storySummarizerService = StorySummarizerService(context)
             viewModelScope.launch {
@@ -148,6 +156,7 @@ class ChatViewModel : ViewModel() {
                 currentSettings = chatSettingsManager?.getCurrentSettings() ?: ChatSettings()
                 // Initialize ElevenLabs
                 elevenLabsService?.initialize()
+                inworldService?.initialize()
             }
         }
     }
@@ -182,7 +191,9 @@ class ChatViewModel : ViewModel() {
         title: String,
         characterIds: List<String>,
         onSuccess: (String) -> Unit,
-        onError: (String) -> Unit
+        onError: (String) -> Unit,
+        extendFromChatId: String? = null,
+        extendMessageCount: Int = 10
     ) {
 
         
@@ -197,6 +208,28 @@ class ChatViewModel : ViewModel() {
             
             chatRepository.createChat(chat)
                 .onSuccess { createdChat ->
+                    // If extending from another chat, copy the last N messages
+                    if (extendFromChatId != null) {
+                        try {
+                            val sourceMessages = chatRepository.getLastNMessages(extendFromChatId, extendMessageCount)
+                            
+                            // Copy each message to the new chat with new IDs and sequential timestamps
+                            var baseTimestamp = System.currentTimeMillis() - (sourceMessages.size * 1000L)
+                            for (sourceMessage in sourceMessages) {
+                                val newMessage = sourceMessage.copy(
+                                    id = java.util.UUID.randomUUID().toString(),
+                                    chatId = createdChat.id,
+                                    timestamp = baseTimestamp
+                                )
+                                chatRepository.addMessage(newMessage)
+                                baseTimestamp += 1000L // 1 second apart to ensure order
+                            }
+                        } catch (e: Exception) {
+                            // Log error but don't fail the chat creation
+                            android.util.Log.e("ChatViewModel", "Failed to copy extend messages: ${e.message}")
+                        }
+                    }
+                    
                     _isLoading.value = false
                     onSuccess(createdChat.id)
                 }
@@ -231,7 +264,7 @@ class ChatViewModel : ViewModel() {
             
             // Load PAGINATED messages for UI display (only recent messages)
             try {
-                val (recentMessages, hasMore) = chatRepository.getMessagesPagedInitial(chatId, 20)
+                val (recentMessages, hasMore) = chatRepository.getMessagesPagedInitial(chatId, AppConstants.INITIAL_PAGE_SIZE)
                 _messages.addAll(recentMessages)
                 _hasMoreMessages.value = hasMore
                 if (recentMessages.isNotEmpty()) {
@@ -300,7 +333,7 @@ class ChatViewModel : ViewModel() {
                 val (olderMessages, hasMore) = chatRepository.getMessagesOlder(
                     chatId = chatId,
                     beforeTimestamp = oldestLoadedTimestamp,
-                    limit = 50
+                    limit = AppConstants.LOAD_MORE_PAGE_SIZE
                 )
                 
                 if (olderMessages.isNotEmpty()) {
@@ -311,7 +344,7 @@ class ChatViewModel : ViewModel() {
                 
                 _hasMoreMessages.value = hasMore
             } catch (e: Exception) {
-                _error.value = "Failed to load more messages: ${e.message}"
+                _error.value = ErrorMessages.loadMoreFailed(e.message)
             } finally {
                 _isLoadingMore.value = false
             }
@@ -379,25 +412,12 @@ class ChatViewModel : ViewModel() {
     }
     
     /**
-     * Build safety settings from user preferences
+     * Build safety settings from user preferences.
+     * @see SafetySettingsBuilder for the centralized implementation.
      */
-    private fun buildSafetySettings(): List<SafetySetting> {
-        fun mapThreshold(threshold: SafetyThreshold): BlockThreshold {
-            return when (threshold) {
-                SafetyThreshold.BLOCK_NONE -> BlockThreshold.NONE
-                SafetyThreshold.BLOCK_ONLY_HIGH -> BlockThreshold.ONLY_HIGH
-                SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE -> BlockThreshold.MEDIUM_AND_ABOVE
-                SafetyThreshold.BLOCK_LOW_AND_ABOVE -> BlockThreshold.LOW_AND_ABOVE
-            }
-        }
-        
-        return listOf(
-            SafetySetting(HarmCategory.HARASSMENT, mapThreshold(currentSettings.safetyHarassment)),
-            SafetySetting(HarmCategory.HATE_SPEECH, mapThreshold(currentSettings.safetyHateSpeech)),
-            SafetySetting(HarmCategory.SEXUALLY_EXPLICIT, mapThreshold(currentSettings.safetySexuallyExplicit)),
-            SafetySetting(HarmCategory.DANGEROUS_CONTENT, mapThreshold(currentSettings.safetyDangerousContent))
-        )
-    }
+    private fun buildSafetySettings(): List<SafetySetting> = 
+        SafetySettingsBuilder.build(currentSettings)
+    
     
     private fun buildSystemInstructions(world: World?, characters: List<Character>, unlockPrompt: String = ""): String {
         return buildString {
@@ -445,24 +465,7 @@ class ChatViewModel : ViewModel() {
                     appendLine("Special Instructions: ${character.systemInstructions}")
                 }
                 // Add language instruction for the character
-                val languageName = when (character.language) {
-                    "en" -> "English"
-                    "ru" -> "Russian"
-                    "es" -> "Spanish"
-                    "fr" -> "French"
-                    "de" -> "German"
-                    "it" -> "Italian"
-                    "pt" -> "Portuguese"
-                    "zh" -> "Chinese"
-                    "ja" -> "Japanese"
-                    "ko" -> "Korean"
-                    "ar" -> "Arabic"
-                    "hi" -> "Hindi"
-                    "pl" -> "Polish"
-                    "uk" -> "Ukrainian"
-                    "lt" -> "Lithuanian"
-                    else -> character.language
-                }
+                val languageName = LanguageUtils.getLanguageName(character.language)
                 appendLine("Language: This character MUST speak and respond in $languageName. All dialogue from ${character.name} should be in $languageName.")
             }
             
@@ -478,27 +481,7 @@ class ChatViewModel : ViewModel() {
             // Add narrator language instructions
             appendLine()
             appendLine("=== NARRATOR LANGUAGE ===")
-            val narratorLanguageName = when (currentSettings.narratorLanguage) {
-                "en" -> "English"
-                "ru" -> "Russian"
-                "es" -> "Spanish"
-                "fr" -> "French"
-                "de" -> "German"
-                "it" -> "Italian"
-                "pt" -> "Portuguese"
-                "zh" -> "Chinese"
-                "ja" -> "Japanese"
-                "ko" -> "Korean"
-                "ar" -> "Arabic"
-                "hi" -> "Hindi"
-                "pl" -> "Polish"
-                "uk" -> "Ukrainian"
-                "lt" -> "Lithuanian"
-                "tr" -> "Turkish"
-                "nl" -> "Dutch"
-                "sv" -> "Swedish"
-                else -> currentSettings.narratorLanguage
-            }
+            val narratorLanguageName = LanguageUtils.getLanguageName(currentSettings.narratorLanguage)
             appendLine("Write all NARRATION (descriptions, actions, scene-setting, internal thoughts exposition) in $narratorLanguageName.")
             appendLine("IMPORTANT: Character DIALOGUE should still be in each character's specified language, NOT the narrator language.")
             appendLine("Only the narrative prose between dialogue should be in $narratorLanguageName.")
@@ -1009,7 +992,8 @@ class ChatViewModel : ViewModel() {
             _summaryError.value = null
             _summaryProposal.value = null
             
-            val messages = _messages.toList()
+            // Use full message history, not just paginated UI messages
+            val messages = _fullMessageHistory.toList()
             val characters = _characters.value
             val world = _world.value
             
@@ -1190,12 +1174,32 @@ class ChatViewModel : ViewModel() {
                 
                 Log.d("ChatViewModel", "Generating TTS: voice=$voiceId, model=$modelId, text=${cleanText.take(100)}...")
                 
-                val result = elevenLabsService?.textToSpeech(
-                    text = cleanText,
-                    voiceId = voiceId!!,
-                    modelId = modelId,
-                    language = language
-                )
+                val isInworldModel = modelId == InworldTTSModels.INWORLD_TTS_1_5_MAX.modelId
+                val isInworldVoice = voiceId!!.startsWith("workspaces/") || voiceId!!.startsWith("voices/")
+                
+                val result = if (isInworldModel) {
+                    // Force Inworld service if Inworld model is selected
+                    if (!isInworldVoice) {
+                        Log.w("ChatViewModel", "Inworld model selected but voice '$voiceId' does not appear to be an Inworld voice")
+                        // Try anyway, or maybe fall back to a default? 
+                        // For now we proceed but log warning. Inworld might reject the ID.
+                    }
+                    inworldService?.textToSpeech(cleanText, voiceId!!, modelId)
+                } else if (isInworldVoice) {
+                     // Inworld voice but non-Inworld model? (Assume user wants Inworld service if voice is Inworld)
+                     // But strictly speaking, if model IS NOT Inworld, we might be in "ElevenLabs" mode.
+                     // However, ElevenLabs service will definitely fail with an Inworld voice ID.
+                     // So we route to Inworld service if the VOICE is Inworld, ignoring the model ID mismatch (or passing it along)
+                     inworldService?.textToSpeech(cleanText, voiceId!!, modelId)
+                } else {
+                    // ElevenLabs
+                    elevenLabsService?.textToSpeech(
+                        text = cleanText,
+                        voiceId = voiceId!!,
+                        modelId = modelId,
+                        language = language
+                    )
+                }
                 
                 if (result == null) {
                     Log.e("ChatViewModel", "ElevenLabsService is null!")
@@ -1272,12 +1276,21 @@ class ChatViewModel : ViewModel() {
                 // Generate a unique segment ID for tracking
                 val segmentId = "${System.currentTimeMillis()}_${text.hashCode()}"
                 
-                val result = elevenLabsService?.textToSpeech(
-                    text = cleanText,
-                    voiceId = voiceId!!,
-                    modelId = modelId,
-                    language = language
-                )
+                val isInworldModel = modelId == InworldTTSModels.INWORLD_TTS_1_5_MAX.modelId
+                val isInworldVoice = voiceId!!.startsWith("workspaces/") || voiceId!!.startsWith("voices/")
+                
+                val result = if (isInworldModel) {
+                    inworldService?.textToSpeech(cleanText, voiceId!!, modelId)
+                } else if (isInworldVoice) {
+                    inworldService?.textToSpeech(cleanText, voiceId!!, modelId)
+                } else {
+                    elevenLabsService?.textToSpeech(
+                        text = cleanText,
+                        voiceId = voiceId!!,
+                        modelId = modelId,
+                        language = language
+                    )
+                }
                 
                 if (result == null) {
                     Log.e("ChatViewModel", "ElevenLabsService is null!")
@@ -1494,12 +1507,23 @@ class ChatViewModel : ViewModel() {
             
             val segmentId = "${System.currentTimeMillis()}_${segment.text.hashCode()}"
             
-            val result = elevenLabsService?.textToSpeech(
-                text = cleanText,
-                voiceId = voiceId,
-                modelId = modelId,
-                language = language
-            ) ?: return Pair(null, segmentId)
+            val isInworldModel = modelId == InworldTTSModels.INWORLD_TTS_1_5_MAX.modelId
+            val isInworldVoice = voiceId!!.startsWith("workspaces/") || voiceId!!.startsWith("voices/")
+            
+            val result = if (isInworldModel) {
+                inworldService?.textToSpeech(cleanText, voiceId!!, modelId)
+            } else if (isInworldVoice) {
+                inworldService?.textToSpeech(cleanText, voiceId!!, modelId)
+            } else {
+                elevenLabsService?.textToSpeech(
+                    text = cleanText,
+                    voiceId = voiceId!!,
+                    modelId = modelId,
+                    language = language
+                )
+            }
+            
+            if (result == null) return Pair(null, segmentId)
             
             return result.fold(
                 onSuccess = { audioData ->

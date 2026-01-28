@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -36,11 +37,18 @@ import com.example.rpapp3.data.TTSPlaybackState
 import com.example.rpapp3.data.MessageFilterMode
 import com.example.rpapp3.data.ResponseLength
 import com.example.rpapp3.data.SafetyThreshold
+import com.example.rpapp3.data.model.AllTTSModels
 import com.example.rpapp3.data.model.ElevenLabsTTSModels
 import com.example.rpapp3.data.model.Voice
 import com.example.rpapp3.viewmodel.ChatViewModel
 import com.example.rpapp3.ui.components.SUPPORTED_LANGUAGES
 import com.example.rpapp3.data.SummaryDetailLevel
+import com.example.rpapp3.data.repository.SummarizerPromptsRepository
+import com.example.rpapp3.data.repository.SummarizerPrompts
+import com.example.rpapp3.data.InworldService
+import com.example.rpapp3.data.model.InworldTTSModels
+import com.example.rpapp3.data.model.VoiceSource
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -104,6 +112,7 @@ fun ChatSettingsScreen(
     
     // ElevenLabs Service and Voices
     val elevenLabsService = remember { ElevenLabsService.getInstance(context) }
+    val inworldService = remember { InworldService.getInstance(context) }
     val ttsManager = remember { TTSManager.getInstance(context) }
     var voices by remember { mutableStateOf<List<Voice>>(emptyList()) }
     var voicesLoading by remember { mutableStateOf(false) }
@@ -113,6 +122,7 @@ fun ChatSettingsScreen(
     // Load voices when TTS section is opened
     LaunchedEffect(Unit) {
         elevenLabsService.initialize()
+        inworldService.initialize()
     }
     
     // Local state for inputs
@@ -132,6 +142,23 @@ fun ChatSettingsScreen(
     var safetySectionExpanded by remember { mutableStateOf(false) }
     var advancedSectionExpanded by remember { mutableStateOf(false) }
     var ttsSectionExpanded by remember { mutableStateOf(false) }
+    var summarizerPromptsSectionExpanded by remember { mutableStateOf(false) }
+    
+    // Summarizer Prompts Repository and State
+    val summarizerPromptsRepository = remember { SummarizerPromptsRepository() }
+    var summarizerPrompts by remember { mutableStateOf(SummarizerPrompts()) }
+    var promptsLoading by remember { mutableStateOf(true) }
+    
+    // Load summarizer prompts
+    LaunchedEffect(Unit) {
+        summarizerPrompts = summarizerPromptsRepository.getSummarizerPromptsOnce()
+        promptsLoading = false
+    }
+    
+    // Prompt editing state - which prompt is currently being edited
+    var editingPromptType by remember { mutableStateOf<String?>(null) }
+    var editingPromptText by remember { mutableStateOf("") }
+    var showDefaultPromptDialog by remember { mutableStateOf<String?>(null) }
     
     // System Prompt Dialog
     if (showSystemPromptDialog) {
@@ -593,16 +620,24 @@ fun ChatSettingsScreen(
                         if (!ttsSectionExpanded.not() && voices.isEmpty()) {
                             voicesLoading = true
                             scope.launch {
-                                elevenLabsService.getVoices().onSuccess {
-                                    voices = it
-                                }
+                                val elevenLabsDeferred = async { elevenLabsService.getVoices() }
+                                val inworldDeferred = async { inworldService.getVoices() }
+
+                                val elevenLabsResult = elevenLabsDeferred.await()
+                                val inworldResult = inworldDeferred.await()
+
+                                val allVoices = mutableListOf<Voice>()
+                                elevenLabsResult.onSuccess { allVoices.addAll(it) }
+                                inworldResult.onSuccess { allVoices.addAll(it) }
+                                
+                                voices = allVoices
                                 voicesLoading = false
                             }
                         }
                     }
                 ) {
                     Text(
-                        text = "Enable voice synthesis for AI messages using ElevenLabs",
+                        text = "Enable voice synthesis for AI messages using ElevenLabs or Inworld",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 8.dp)
@@ -644,7 +679,7 @@ fun ChatSettingsScreen(
                             fontWeight = FontWeight.Medium
                         )
                         Text(
-                            text = "Select the ElevenLabs model for voice synthesis",
+                            text = "Select the TTS model for voice synthesis",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -655,9 +690,9 @@ fun ChatSettingsScreen(
                             onExpandedChange = { modelExpanded = !modelExpanded },
                             modifier = Modifier.padding(top = 8.dp)
                         ) {
-                            val selectedModel = ElevenLabsTTSModels.DEFAULT_MODELS.find { it.modelId == ttsModelId }
+                            val selectedModel = AllTTSModels.DEFAULT_MODELS.find { it.modelId == ttsModelId }
                             OutlinedTextField(
-                                value = selectedModel?.name ?: "Eleven V3",
+                                value = selectedModel?.name ?: "Select Model",
                                 onValueChange = {},
                                 readOnly = true,
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelExpanded) },
@@ -668,7 +703,7 @@ fun ChatSettingsScreen(
                                 expanded = modelExpanded,
                                 onDismissRequest = { modelExpanded = false }
                             ) {
-                                ElevenLabsTTSModels.DEFAULT_MODELS.forEach { model ->
+                                AllTTSModels.DEFAULT_MODELS.forEach { model ->
                                     DropdownMenuItem(
                                         text = { 
                                             Column {
@@ -709,6 +744,14 @@ fun ChatSettingsScreen(
                             var voiceExpanded by remember { mutableStateOf(false) }
                             val selectedVoice = voices.find { it.voiceId == narratorVoiceId }
                             
+                            val filteredVoices = remember(voices, ttsModelId) {
+                                if (ttsModelId == InworldTTSModels.INWORLD_TTS_1_5_MAX.modelId) {
+                                    voices.filter { it.source == VoiceSource.INWORLD }
+                                } else {
+                                    voices.filter { it.source == VoiceSource.ELEVEN_LABS }
+                                }
+                            }
+                            
                             ExposedDropdownMenuBox(
                                 expanded = voiceExpanded,
                                 onExpandedChange = { voiceExpanded = !voiceExpanded },
@@ -747,7 +790,7 @@ fun ChatSettingsScreen(
                                     expanded = voiceExpanded,
                                     onDismissRequest = { voiceExpanded = false }
                                 ) {
-                                    voices.take(50).forEach { voice ->
+                                    filteredVoices.take(50).forEach { voice ->
                                         DropdownMenuItem(
                                             text = { 
                                                 Row(
@@ -1058,6 +1101,258 @@ fun ChatSettingsScreen(
                             )
                         }
                     }
+                }
+                
+                // Summarizer Prompts Section
+                SettingsSection(
+                    title = "Summarizer Prompts",
+                    expanded = summarizerPromptsSectionExpanded,
+                    onToggle = { summarizerPromptsSectionExpanded = !summarizerPromptsSectionExpanded }
+                ) {
+                    Text(
+                        text = "Customize the prompts used for story summarization and field-specific updates. Leave empty to use defaults.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+                    
+                    if (promptsLoading) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    } else {
+                        // Prompt editor cards
+                        val promptTypes = listOf(
+                            Triple("high_detail", "High Detail Summary", summarizerPrompts.highDetailSummaryPrompt),
+                            Triple("background", "Character Background", summarizerPrompts.characterBackgroundPrompt),
+                            Triple("appearance", "Character Appearance", summarizerPrompts.characterAppearancePrompt),
+                            Triple("personality", "Character Personality", summarizerPrompts.characterPersonalityPrompt),
+                            Triple("world", "World Description", summarizerPrompts.worldDescriptionPrompt)
+                        )
+                        
+                        promptTypes.forEach { (typeId, title, currentPrompt) ->
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                )
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = title,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                            Text(
+                                                text = if (currentPrompt.isBlank()) "Using default" else "Custom prompt set",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = if (currentPrompt.isBlank()) 
+                                                    MaterialTheme.colorScheme.onSurfaceVariant 
+                                                else 
+                                                    MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                    }
+                                    
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        // View Default Button
+                                        OutlinedButton(
+                                            onClick = { showDefaultPromptDialog = typeId },
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text("View Default", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                        
+                                        // Edit Button
+                                        Button(
+                                            onClick = {
+                                                editingPromptType = typeId
+                                                editingPromptText = currentPrompt
+                                            },
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text("Edit", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+                                    
+                                    // Reset to Default (only if custom prompt is set)
+                                    if (currentPrompt.isNotBlank()) {
+                                        TextButton(
+                                            onClick = {
+                                                scope.launch {
+                                                    when (typeId) {
+                                                        "high_detail" -> summarizerPromptsRepository.resetHighDetailSummaryPrompt()
+                                                        "background" -> summarizerPromptsRepository.resetCharacterBackgroundPrompt()
+                                                        "appearance" -> summarizerPromptsRepository.resetCharacterAppearancePrompt()
+                                                        "personality" -> summarizerPromptsRepository.resetCharacterPersonalityPrompt()
+                                                        "world" -> summarizerPromptsRepository.resetWorldDescriptionPrompt()
+                                                    }
+                                                    // Reload prompts
+                                                    summarizerPrompts = summarizerPromptsRepository.getSummarizerPromptsOnce()
+                                                }
+                                            },
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Restore,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Reset to Default", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        // Reset All Prompts Button
+                        OutlinedButton(
+                            onClick = {
+                                scope.launch {
+                                    summarizerPromptsRepository.resetAllPrompts()
+                                    summarizerPrompts = SummarizerPrompts()
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error
+                            )
+                        ) {
+                            Icon(
+                                Icons.Default.Restore,
+                                contentDescription = null,
+                                modifier = Modifier.padding(end = 8.dp)
+                            )
+                            Text("Reset All Prompts to Default")
+                        }
+                    }
+                }
+                
+                // Edit Prompt Dialog
+                editingPromptType?.let { typeId ->
+                    val title = when (typeId) {
+                        "high_detail" -> "High Detail Summary Prompt"
+                        "background" -> "Character Background Prompt"
+                        "appearance" -> "Character Appearance Prompt"
+                        "personality" -> "Character Personality Prompt"
+                        "world" -> "World Description Prompt"
+                        else -> "Edit Prompt"
+                    }
+                    
+                    AlertDialog(
+                        onDismissRequest = { editingPromptType = null },
+                        title = { Text(title) },
+                        text = {
+                            Column {
+                                Text(
+                                    text = "Enter your custom prompt. Leave empty to use the default.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(bottom = 8.dp)
+                                )
+                                OutlinedTextField(
+                                    value = editingPromptText,
+                                    onValueChange = { editingPromptText = it },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 200.dp, max = 400.dp),
+                                    label = { Text("Custom Prompt") },
+                                    placeholder = { Text("Enter custom prompt or leave empty for default...") }
+                                )
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    scope.launch {
+                                        when (typeId) {
+                                            "high_detail" -> summarizerPromptsRepository.setHighDetailSummaryPrompt(editingPromptText)
+                                            "background" -> summarizerPromptsRepository.setCharacterBackgroundPrompt(editingPromptText)
+                                            "appearance" -> summarizerPromptsRepository.setCharacterAppearancePrompt(editingPromptText)
+                                            "personality" -> summarizerPromptsRepository.setCharacterPersonalityPrompt(editingPromptText)
+                                            "world" -> summarizerPromptsRepository.setWorldDescriptionPrompt(editingPromptText)
+                                        }
+                                        // Reload prompts
+                                        summarizerPrompts = summarizerPromptsRepository.getSummarizerPromptsOnce()
+                                        editingPromptType = null
+                                    }
+                                }
+                            ) {
+                                Text("Save")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { editingPromptType = null }) {
+                                Text("Cancel")
+                            }
+                        }
+                    )
+                }
+                
+                // View Default Prompt Dialog
+                showDefaultPromptDialog?.let { typeId ->
+                    val title = when (typeId) {
+                        "high_detail" -> "High Detail Summary"
+                        "background" -> "Character Background"
+                        "appearance" -> "Character Appearance"
+                        "personality" -> "Character Personality"
+                        "world" -> "World Description"
+                        else -> "Default Prompt"
+                    }
+                    
+                    val defaultPrompt = when (typeId) {
+                        "high_detail" -> SummarizerPromptsRepository.DEFAULT_HIGH_DETAIL_SUMMARY_PROMPT
+                        "background" -> SummarizerPromptsRepository.DEFAULT_CHARACTER_BACKGROUND_PROMPT
+                        "appearance" -> SummarizerPromptsRepository.DEFAULT_CHARACTER_APPEARANCE_PROMPT
+                        "personality" -> SummarizerPromptsRepository.DEFAULT_CHARACTER_PERSONALITY_PROMPT
+                        "world" -> SummarizerPromptsRepository.DEFAULT_WORLD_DESCRIPTION_PROMPT
+                        else -> ""
+                    }
+                    
+                    AlertDialog(
+                        onDismissRequest = { showDefaultPromptDialog = null },
+                        title = { Text("Default: $title") },
+                        text = {
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 400.dp),
+                                shape = MaterialTheme.shapes.small,
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            ) {
+                                SelectionContainer {
+                                    Text(
+                                        text = defaultPrompt,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier
+                                            .padding(12.dp)
+                                            .verticalScroll(rememberScrollState())
+                                    )
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { showDefaultPromptDialog = null }) {
+                                Text("Close")
+                            }
+                        }
+                    )
                 }
                 
                 // AI Model Selector Card

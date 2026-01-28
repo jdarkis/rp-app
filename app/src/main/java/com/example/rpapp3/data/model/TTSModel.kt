@@ -67,3 +67,20 @@ object ElevenLabsTTSModels {
     
     const val DEFAULT_MODEL_ID = "eleven_v3"
 }
+
+object InworldTTSModels {
+    val INWORLD_TTS_1_5_MAX = TTSModel(
+        modelId = "inworld-tts-1.5-max",
+        name = "Inworld TTS 1.5 Max",
+        description = "Highest quality Inworld speech synthesis",
+        canDoTextToSpeech = true
+    )
+    
+    val DEFAULT_MODELS = listOf(
+        INWORLD_TTS_1_5_MAX
+    )
+}
+
+object AllTTSModels {
+    val DEFAULT_MODELS = ElevenLabsTTSModels.DEFAULT_MODELS + InworldTTSModels.DEFAULT_MODELS
+}

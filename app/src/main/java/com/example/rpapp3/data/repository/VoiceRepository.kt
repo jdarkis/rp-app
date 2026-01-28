@@ -33,7 +33,17 @@ class VoiceRepository {
                         voiceId = doc.getString("voiceId") ?: return@mapNotNull null,
                         name = doc.getString("name") ?: return@mapNotNull null,
                         previewUrl = doc.getString("previewUrl"),
-                        labels = (doc.get("labels") as? Map<String, String>) ?: emptyMap()
+                        labels = (doc.get("labels") as? Map<String, String>) ?: emptyMap(),
+                        source = try {
+                            val sourceStr = doc.getString("source")
+                            if (sourceStr != null) {
+                                com.example.rpapp3.data.model.VoiceSource.valueOf(sourceStr)
+                            } else {
+                                com.example.rpapp3.data.model.VoiceSource.ELEVEN_LABS
+                            }
+                        } catch (e: Exception) {
+                            com.example.rpapp3.data.model.VoiceSource.ELEVEN_LABS
+                        }
                     )
                 } catch (e: Exception) {
                     null
@@ -55,7 +65,8 @@ class VoiceRepository {
                 "voiceId" to voice.voiceId,
                 "name" to voice.name,
                 "previewUrl" to voice.previewUrl,
-                "labels" to voice.labels
+                "labels" to voice.labels,
+                "source" to voice.source.name
             )
             voicesCollection.document(voice.voiceId).set(voiceData).await()
             Result.success(Unit)

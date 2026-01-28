@@ -32,8 +32,9 @@ import com.example.rpapp3.data.CharacterFieldType
 import com.example.rpapp3.ui.components.AIEnhancedTextField
 import com.example.rpapp3.ui.components.GenderSelector
 import com.example.rpapp3.ui.components.LanguageSelector
-import com.example.rpapp3.ui.components.VoiceSelector
+import com.example.rpapp3.ui.components.CharacterVoiceSelector
 import com.example.rpapp3.viewmodel.CharacterViewModel
+import com.example.rpapp3.data.model.VoiceSource
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,6 +63,7 @@ fun CreateCharacterScreen(
     var language by remember { mutableStateOf("en") }
     var gender by remember { mutableStateOf<String?>(null) }
     var voiceId by remember { mutableStateOf<String?>(null) }
+    var voiceSource by remember { mutableStateOf(VoiceSource.ELEVEN_LABS) }
     
     val voices by viewModel.voices.collectAsState()
     val voicesLoading by viewModel.voicesLoading.collectAsState()
@@ -354,10 +356,14 @@ fun CreateCharacterScreen(
             )
             
             ttsManager?.let { manager ->
-                VoiceSelector(
+                CharacterVoiceSelector(
                     voices = voices,
                     selectedVoiceId = voiceId,
-                    onVoiceSelected = { voice -> voiceId = voice?.voiceId },
+                    selectedVoiceSource = voiceSource,
+                    onVoiceSelected = { voice, source ->
+                        voiceId = voice?.voiceId
+                        voiceSource = source
+                    },
                     ttsManager = manager,
                     enabled = !viewModel.isLoading,
                     isLoading = voicesLoading,
@@ -477,6 +483,7 @@ fun CreateCharacterScreen(
                         videoUris = videoUris,
                         language = language,
                         voiceId = voiceId,
+                        voiceSource = voiceSource,
                         gender = gender,
                         onSuccess = onCharacterCreated,
                         onError = { errorMessage = it }

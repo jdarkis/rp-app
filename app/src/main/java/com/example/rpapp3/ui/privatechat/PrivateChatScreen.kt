@@ -51,6 +51,9 @@ fun PrivateChatScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     
+    // Track if this is the initial load (to skip scroll animation)
+    var isInitialLoad by remember { mutableStateOf(true) }
+    
     // Display filter settings
     val displayFilterSettings by viewModel.displayFilterSettings.collectAsState()
     
@@ -63,7 +66,14 @@ fun PrivateChatScreen(
     // Scroll to bottom when new messages arrive
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
+            if (isInitialLoad) {
+                // Instant scroll on initial load (no animation)
+                listState.scrollToItem(messages.size - 1)
+                isInitialLoad = false
+            } else {
+                // Animated scroll for new messages during conversation
+                listState.animateScrollToItem(messages.size - 1)
+            }
         }
     }
     

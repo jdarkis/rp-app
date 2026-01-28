@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -110,11 +111,13 @@ fun SummaryReviewDialog(
                         expanded = summaryExpanded,
                         onToggle = { summaryExpanded = !summaryExpanded }
                     ) {
-                        Text(
-                            text = proposal.storySummary,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        SelectionContainer {
+                            Text(
+                                text = proposal.storySummary,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                     
                     HorizontalDivider()
@@ -517,13 +520,15 @@ private fun ComparisonField(
                         )
                     }
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = oldValue.ifBlank { "[empty]" },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
-                        maxLines = if (oldExpanded) Int.MAX_VALUE else 6,
-                        overflow = if (oldExpanded) TextOverflow.Visible else TextOverflow.Ellipsis
-                    )
+                    SelectionContainer {
+                        Text(
+                            text = oldValue.ifBlank { "[empty]" },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
+                            maxLines = if (oldExpanded) Int.MAX_VALUE else 6,
+                            overflow = if (oldExpanded) TextOverflow.Visible else TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
             
@@ -557,13 +562,15 @@ private fun ComparisonField(
                         )
                     }
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = newValue,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
-                        maxLines = if (newExpanded) Int.MAX_VALUE else 6,
-                        overflow = if (newExpanded) TextOverflow.Visible else TextOverflow.Ellipsis
-                    )
+                    SelectionContainer {
+                        Text(
+                            text = newValue,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
+                            maxLines = if (newExpanded) Int.MAX_VALUE else 6,
+                            overflow = if (newExpanded) TextOverflow.Visible else TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
         }

@@ -200,6 +200,9 @@ fun ChatScreen(
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
     
+    // Track if this is the initial load (to skip scroll animation)
+    var isInitialLoad by remember { mutableStateOf(true) }
+    
     // Chat settings
     val chatSettingsManager = remember { ChatSettingsManager.getInstance(context) }
     val filterMode by chatSettingsManager.filterMode.collectAsState(initial = MessageFilterMode.OFF)
@@ -240,7 +243,14 @@ fun ChatScreen(
     // Auto-scroll to bottom when new messages arrive
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
+            if (isInitialLoad) {
+                // Instant scroll on initial load (no animation)
+                listState.scrollToItem(messages.size - 1)
+                isInitialLoad = false
+            } else {
+                // Animated scroll for new messages during conversation
+                listState.animateScrollToItem(messages.size - 1)
+            }
         }
     }
     

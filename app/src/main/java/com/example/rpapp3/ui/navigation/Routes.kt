@@ -43,9 +43,11 @@ sealed class Routes(val route: String) {
     data object Settings : Routes("settings")
     data object SettingsApiKeys : Routes("settings/api-keys")
     data object SettingsElevenLabsApiKeys : Routes("settings/elevenlabs-api-keys")
+    data object SettingsInworldApiKeys : Routes("settings/inworld-api-keys")
     data object SettingsAppearance : Routes("settings/appearance")
     data object SettingsUnlockPrompt : Routes("settings/unlock-prompt")
     data object SettingsElevenLabsVoices : Routes("settings/elevenlabs-voices")
+    data object SettingsInworldVoices : Routes("settings/inworld-voices")
     
     // Private Chat routes
     data object PrivateChat : Routes("worlds/{worldId}/characters/{characterId}/private-chat") {
