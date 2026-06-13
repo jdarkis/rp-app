@@ -1,5 +1,7 @@
 package com.example.rpapp3.data.repository
 
+import com.example.rpapp3.data.ChatSettings
+
 import com.example.rpapp3.data.model.Chat
 import com.example.rpapp3.data.model.ChatMessage
 import com.example.rpapp3.data.model.ModelRequestDetails
@@ -48,6 +50,20 @@ class ChatRepository {
             null
         }
     }
+
+    fun observeChat(chatId: String): Flow<Chat?> = callbackFlow {
+        val listener = chatsCollection.document(chatId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    close(error)
+                    return@addSnapshotListener
+                }
+
+                trySend(snapshot?.data?.let(Chat::fromMap))
+            }
+
+        awaitClose { listener.remove() }
+    }
     
     /**
      * Get all chats for a specific world (one-time fetch, no index required)
@@ -89,6 +105,17 @@ class ChatRepository {
         return try {
             val updatedChat = chat.copy(updatedAt = System.currentTimeMillis())
             chatsCollection.document(chat.id).set(updatedChat.toMap()).await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun updateChatSettings(chatId: String, settings: ChatSettings): Result<Unit> {
+        return try {
+            chatsCollection.document(chatId)
+                .update("settings", settings.toMap())
+                .await()
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)

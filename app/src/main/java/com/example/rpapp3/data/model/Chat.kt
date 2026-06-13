@@ -1,5 +1,7 @@
 package com.example.rpapp3.data.model
 
+import com.example.rpapp3.data.ChatSettings
+
 data class Chat(
     val id: String = "",
     val worldId: String = "",
@@ -13,7 +15,9 @@ data class Chat(
     // Context knowledge: list of chat IDs to include as context
     val contextChatIds: List<String> = emptyList(),
     // Writing style instructions for private chats (stored in Firebase)
-    val writingStyle: String = ""
+    val writingStyle: String = "",
+    // Normal chat settings. Private chats keep using their existing settings path.
+    val settings: ChatSettings = ChatSettings()
 ) {
     // No-arg constructor for Firestore
     constructor() : this("")
@@ -28,7 +32,8 @@ data class Chat(
         "isPrivateChat" to isPrivateChat,
         "privateCharacterId" to privateCharacterId,
         "contextChatIds" to contextChatIds,
-        "writingStyle" to writingStyle
+        "writingStyle" to writingStyle,
+        "settings" to settings.toMap()
     )
     
     companion object {
@@ -39,13 +44,21 @@ data class Chat(
                 worldId = map["worldId"] as? String ?: "",
                 characterIds = (map["characterIds"] as? List<String>) ?: emptyList(),
                 title = map["title"] as? String ?: "",
-                createdAt = (map["createdAt"] as? Long) ?: System.currentTimeMillis(),
-                updatedAt = (map["updatedAt"] as? Long) ?: System.currentTimeMillis(),
+                createdAt = (map["createdAt"] as? Number)?.toLong() ?: System.currentTimeMillis(),
+                updatedAt = (map["updatedAt"] as? Number)?.toLong() ?: System.currentTimeMillis(),
                 isPrivateChat = map["isPrivateChat"] as? Boolean ?: false,
                 privateCharacterId = map["privateCharacterId"] as? String,
                 contextChatIds = (map["contextChatIds"] as? List<String>) ?: emptyList(),
-                writingStyle = map["writingStyle"] as? String ?: ""
+                writingStyle = map["writingStyle"] as? String ?: "",
+                settings = ChatSettings.fromMap(map["settings"].asStringKeyMap())
             )
+        }
+
+        private fun Any?.asStringKeyMap(): Map<String, Any?>? {
+            val rawMap = this as? Map<*, *> ?: return null
+            return rawMap.entries.mapNotNull { (key, value) ->
+                (key as? String)?.let { it to value }
+            }.toMap()
         }
     }
 }

@@ -38,7 +38,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
-import com.example.rpapp3.data.ChatSettingsManager
 import com.example.rpapp3.data.MessageFilterMode
 import com.example.rpapp3.data.TTSPlaybackState
 import com.example.rpapp3.data.model.ChatMessage
@@ -221,18 +220,15 @@ fun ChatScreen(
     // Track if this is the initial load (to skip scroll animation)
     var isInitialLoad by remember { mutableStateOf(true) }
     
-    // Chat settings
-    val chatSettingsManager = remember { ChatSettingsManager.getInstance(context) }
-    val filterMode by chatSettingsManager.filterMode.collectAsState(initial = MessageFilterMode.OFF)
-    val customDelimiter by chatSettingsManager.customDelimiter.collectAsState(initial = ChatSettingsManager.DEFAULT_DELIMITER)
-    val customDelimiters by chatSettingsManager.customDelimiters.collectAsState(initial = listOf(ChatSettingsManager.DEFAULT_DELIMITER))
-    val paragraphCount by chatSettingsManager.paragraphCount.collectAsState(initial = ChatSettingsManager.DEFAULT_PARAGRAPH_COUNT)
-    val separateCharacterDialogue by chatSettingsManager.separateCharacterDialogue.collectAsState(initial = true)
-    val provideChoicesEnabled by chatSettingsManager.provideChoicesEnabled.collectAsState(initial = true)
-    
-    // TTS settings
-    val ttsEnabled by chatSettingsManager.ttsEnabled.collectAsState(initial = false)
-    val autoTtsEnabled by chatSettingsManager.autoTtsEnabled.collectAsState(initial = false)
+    // Settings belong to the active chat.
+    val chatSettings by viewModel.chatSettings.collectAsState()
+    val filterMode = chatSettings.filterMode
+    val customDelimiters = chatSettings.customDelimiters
+    val paragraphCount = chatSettings.paragraphCount
+    val separateCharacterDialogue = chatSettings.separateCharacterDialogue
+    val provideChoicesEnabled = chatSettings.provideChoicesEnabled
+    val ttsEnabled = chatSettings.ttsEnabled
+    val autoTtsEnabled = chatSettings.autoTtsEnabled
     val ttsManager = viewModel.ttsManager
     val playbackState = ttsManager?.playbackState?.collectAsState()
     val currentPlayingId = ttsManager?.currentPlayingId?.collectAsState()

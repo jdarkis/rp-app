@@ -853,6 +853,7 @@ Output Format Example: Internal Thought: I'm feeling a bit annoyed that they're 
         val geminiSettings = ChatSettings(
             filterMode = filterMode.first(),
             customDelimiter = customDelimiter.first(),
+            customDelimiters = customDelimiters.first(),
             paragraphCount = paragraphCount.first(),
             streamingEnabled = streamingEnabled.first(),
             temperature = temperature.first(),
@@ -863,7 +864,11 @@ Output Format Example: Internal Thought: I'm feeling a bit annoyed that they're 
             frequencyPenalty = frequencyPenalty.first(),
             thinkingEnabled = thinkingEnabled.first(),
             bedrockSamplingMode = bedrockSamplingMode.first(),
+            bedrockTemperature = bedrockTemperature.first(),
+            bedrockTopP = bedrockTopP.first(),
+            bedrockTopK = bedrockTopK.first(),
             bedrockTopKEnabled = bedrockTopKEnabled.first(),
+            bedrockMaxOutputTokens = bedrockMaxOutputTokens.first(),
             safetyHarassment = safetyHarassment.first(),
             safetyHateSpeech = safetyHateSpeech.first(),
             safetySexuallyExplicit = safetySexuallyExplicit.first(),
@@ -928,6 +933,7 @@ Output Format Example: Internal Thought: I'm feeling a bit annoyed that they're 
 data class ChatSettings(
     val filterMode: MessageFilterMode = MessageFilterMode.OFF,
     val customDelimiter: String = ChatSettingsManager.DEFAULT_DELIMITER,
+    val customDelimiters: List<String> = listOf(ChatSettingsManager.DEFAULT_DELIMITER),
     val paragraphCount: Int = ChatSettingsManager.DEFAULT_PARAGRAPH_COUNT,
     val streamingEnabled: Boolean = false,
     val temperature: Float = ChatSettingsManager.DEFAULT_TEMPERATURE,
@@ -938,7 +944,11 @@ data class ChatSettings(
     val frequencyPenalty: Float = ChatSettingsManager.DEFAULT_FREQUENCY_PENALTY,
     val thinkingEnabled: Boolean = false,
     val bedrockSamplingMode: BedrockSamplingMode = ChatSettingsManager.DEFAULT_BEDROCK_SAMPLING_MODE,
+    val bedrockTemperature: Float = ChatSettingsManager.DEFAULT_BEDROCK_TEMPERATURE,
+    val bedrockTopP: Float = ChatSettingsManager.DEFAULT_BEDROCK_TOP_P,
+    val bedrockTopK: Int = ChatSettingsManager.DEFAULT_BEDROCK_TOP_K,
     val bedrockTopKEnabled: Boolean = ChatSettingsManager.DEFAULT_BEDROCK_TOP_K_ENABLED,
+    val bedrockMaxOutputTokens: Int = ChatSettingsManager.DEFAULT_BEDROCK_MAX_OUTPUT_TOKENS,
     val safetyHarassment: SafetyThreshold = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE,
     val safetyHateSpeech: SafetyThreshold = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE,
     val safetySexuallyExplicit: SafetyThreshold = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE,
@@ -960,7 +970,214 @@ data class ChatSettings(
     val narratorLanguage: String = "en",
     // AI Model
     val aiModelId: String = ChatSettingsManager.DEFAULT_AI_MODEL_ID
-)
+) {
+    fun toMap(): Map<String, Any> = mapOf(
+        "filterMode" to filterMode.name,
+        "customDelimiter" to customDelimiter,
+        "customDelimiters" to customDelimiters,
+        "paragraphCount" to paragraphCount,
+        "streamingEnabled" to streamingEnabled,
+        "temperature" to temperature,
+        "topP" to topP,
+        "topK" to topK,
+        "maxOutputTokens" to maxOutputTokens,
+        "presencePenalty" to presencePenalty,
+        "frequencyPenalty" to frequencyPenalty,
+        "thinkingEnabled" to thinkingEnabled,
+        "bedrockSamplingMode" to bedrockSamplingMode.name,
+        "bedrockTemperature" to bedrockTemperature,
+        "bedrockTopP" to bedrockTopP,
+        "bedrockTopK" to bedrockTopK,
+        "bedrockTopKEnabled" to bedrockTopKEnabled,
+        "bedrockMaxOutputTokens" to bedrockMaxOutputTokens,
+        "safetyHarassment" to safetyHarassment.name,
+        "safetyHateSpeech" to safetyHateSpeech.name,
+        "safetySexuallyExplicit" to safetySexuallyExplicit.name,
+        "safetyDangerousContent" to safetyDangerousContent.name,
+        "separateCharacterDialogue" to separateCharacterDialogue,
+        "provideChoicesEnabled" to provideChoicesEnabled,
+        "responseLength" to responseLength.name,
+        "ttsEnabled" to ttsEnabled,
+        "autoTtsEnabled" to autoTtsEnabled,
+        "ttsAudioTagsEnabled" to ttsAudioTagsEnabled,
+        "narratorVoiceId" to narratorVoiceId,
+        "ttsModelId" to ttsModelId,
+        "unlockPromptEnabled" to unlockPromptEnabled,
+        "systemPromptEnabled" to systemPromptEnabled,
+        "narratorLanguage" to narratorLanguage,
+        "aiModelId" to aiModelId
+    )
+
+    fun effectiveForSelectedProvider(): ChatSettings {
+        return if (ChatSettingsManager.aiProviderFor(aiModelId) == AiProvider.BEDROCK) {
+            applyBedrockGenerationProfile(
+                settings = this,
+                profile = BedrockGenerationProfile(
+                    samplingMode = bedrockSamplingMode,
+                    temperature = bedrockTemperature,
+                    topP = bedrockTopP,
+                    topK = bedrockTopK,
+                    topKEnabled = bedrockTopKEnabled,
+                    maxOutputTokens = bedrockMaxOutputTokens
+                )
+            )
+        } else {
+            this
+        }
+    }
+
+    companion object {
+        fun fromMap(map: Map<String, Any?>?): ChatSettings {
+            if (map == null) return ChatSettings()
+
+            val defaults = ChatSettings()
+            val delimiters = (map["customDelimiters"] as? List<*>)
+                ?.mapNotNull { it as? String }
+                ?.filter { it.isNotEmpty() }
+                ?.takeIf { it.isNotEmpty() }
+                ?: (map["customDelimiter"] as? String)
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.let(::listOf)
+                ?: defaults.customDelimiters
+            val primaryDelimiter = (map["customDelimiter"] as? String)
+                ?.takeIf { it.isNotEmpty() }
+                ?: delimiters.first()
+
+            return ChatSettings(
+                filterMode = enumValue(
+                    value = map["filterMode"],
+                    default = defaults.filterMode,
+                    legacyValues = mapOf("LAST_PARAGRAPH" to MessageFilterMode.LAST_N_PARAGRAPHS)
+                ),
+                customDelimiter = primaryDelimiter,
+                customDelimiters = delimiters,
+                paragraphCount = map.intValue("paragraphCount", defaults.paragraphCount, 1..20),
+                streamingEnabled = map.booleanValue("streamingEnabled", defaults.streamingEnabled),
+                temperature = map.floatValue("temperature", defaults.temperature, 0f..2f),
+                topP = map.floatValue("topP", defaults.topP, 0f..1f),
+                topK = map.intValue("topK", defaults.topK, 1..100),
+                maxOutputTokens = map.intValue(
+                    "maxOutputTokens",
+                    defaults.maxOutputTokens,
+                    1..65_536
+                ),
+                presencePenalty = map.floatValue(
+                    "presencePenalty",
+                    defaults.presencePenalty,
+                    -2f..2f
+                ),
+                frequencyPenalty = map.floatValue(
+                    "frequencyPenalty",
+                    defaults.frequencyPenalty,
+                    -2f..2f
+                ),
+                thinkingEnabled = map.booleanValue("thinkingEnabled", defaults.thinkingEnabled),
+                bedrockSamplingMode = enumValue(
+                    map["bedrockSamplingMode"],
+                    defaults.bedrockSamplingMode
+                ),
+                bedrockTemperature = map.floatValue(
+                    "bedrockTemperature",
+                    defaults.bedrockTemperature,
+                    0f..1f
+                ),
+                bedrockTopP = map.floatValue("bedrockTopP", defaults.bedrockTopP, 0f..1f),
+                bedrockTopK = map.intValue("bedrockTopK", defaults.bedrockTopK, 0..500),
+                bedrockTopKEnabled = map.booleanValue(
+                    "bedrockTopKEnabled",
+                    defaults.bedrockTopKEnabled
+                ),
+                bedrockMaxOutputTokens = map.intValue(
+                    "bedrockMaxOutputTokens",
+                    defaults.bedrockMaxOutputTokens,
+                    1..128_000
+                ),
+                safetyHarassment = enumValue(map["safetyHarassment"], defaults.safetyHarassment),
+                safetyHateSpeech = enumValue(map["safetyHateSpeech"], defaults.safetyHateSpeech),
+                safetySexuallyExplicit = enumValue(
+                    map["safetySexuallyExplicit"],
+                    defaults.safetySexuallyExplicit
+                ),
+                safetyDangerousContent = enumValue(
+                    map["safetyDangerousContent"],
+                    defaults.safetyDangerousContent
+                ),
+                separateCharacterDialogue = map.booleanValue(
+                    "separateCharacterDialogue",
+                    defaults.separateCharacterDialogue
+                ),
+                provideChoicesEnabled = map.booleanValue(
+                    "provideChoicesEnabled",
+                    defaults.provideChoicesEnabled
+                ),
+                responseLength = enumValue(map["responseLength"], defaults.responseLength),
+                ttsEnabled = map.booleanValue("ttsEnabled", defaults.ttsEnabled),
+                autoTtsEnabled = map.booleanValue("autoTtsEnabled", defaults.autoTtsEnabled),
+                ttsAudioTagsEnabled = map.booleanValue(
+                    "ttsAudioTagsEnabled",
+                    defaults.ttsAudioTagsEnabled
+                ),
+                narratorVoiceId = map.stringValue("narratorVoiceId", defaults.narratorVoiceId),
+                ttsModelId = map.stringValue(
+                    "ttsModelId",
+                    defaults.ttsModelId,
+                    allowBlank = false
+                ),
+                unlockPromptEnabled = map.booleanValue(
+                    "unlockPromptEnabled",
+                    defaults.unlockPromptEnabled
+                ),
+                systemPromptEnabled = map.booleanValue(
+                    "systemPromptEnabled",
+                    defaults.systemPromptEnabled
+                ),
+                narratorLanguage = map.stringValue(
+                    "narratorLanguage",
+                    defaults.narratorLanguage,
+                    allowBlank = false
+                ),
+                aiModelId = map.stringValue("aiModelId", defaults.aiModelId, allowBlank = false)
+                    .takeIf { ChatSettingsManager.aiModelOptionFor(it) != null }
+                    ?: defaults.aiModelId
+            )
+        }
+
+        private inline fun <reified T : Enum<T>> enumValue(
+            value: Any?,
+            default: T,
+            legacyValues: Map<String, T> = emptyMap()
+        ): T {
+            val stored = value as? String ?: return default
+            return legacyValues[stored]
+                ?: enumValues<T>().firstOrNull { it.name == stored }
+                ?: default
+        }
+
+        private fun Map<String, Any?>.booleanValue(key: String, default: Boolean): Boolean =
+            this[key] as? Boolean ?: default
+
+        private fun Map<String, Any?>.intValue(
+            key: String,
+            default: Int,
+            range: IntRange
+        ): Int = (this[key] as? Number)?.toInt()?.coerceIn(range) ?: default
+
+        private fun Map<String, Any?>.floatValue(
+            key: String,
+            default: Float,
+            range: ClosedFloatingPointRange<Float>
+        ): Float = (this[key] as? Number)?.toFloat()?.coerceIn(range) ?: default
+
+        private fun Map<String, Any?>.stringValue(
+            key: String,
+            default: String,
+            allowBlank: Boolean = true
+        ): String {
+            val value = this[key] as? String ?: return default
+            return if (allowBlank || value.isNotBlank()) value else default
+        }
+    }
+}
 
 internal data class BedrockGenerationProfile(
     val samplingMode: BedrockSamplingMode = ChatSettingsManager.DEFAULT_BEDROCK_SAMPLING_MODE,
@@ -983,7 +1200,11 @@ internal fun applyBedrockGenerationProfile(
         maxOutputTokens = profile.maxOutputTokens.coerceIn(1, 128_000),
         thinkingEnabled = false,
         bedrockSamplingMode = profile.samplingMode,
-        bedrockTopKEnabled = profile.topKEnabled
+        bedrockTemperature = profile.temperature.coerceIn(0f, 1f),
+        bedrockTopP = profile.topP.coerceIn(0f, 1f),
+        bedrockTopK = profile.topK.coerceIn(0, 500),
+        bedrockTopKEnabled = profile.topKEnabled,
+        bedrockMaxOutputTokens = profile.maxOutputTokens.coerceIn(1, 128_000)
     )
 }
 

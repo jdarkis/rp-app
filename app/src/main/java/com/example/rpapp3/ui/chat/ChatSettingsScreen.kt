@@ -64,7 +64,6 @@ fun ChatSettingsScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val chatSettingsManager = remember { ChatSettingsManager.getInstance(context) }
     
     // Initialize ViewModel to load the system prompt
     LaunchedEffect(chatId, worldId) {
@@ -75,63 +74,40 @@ fun ChatSettingsScreen(
     // Collect the system prompt from the ViewModel
     val systemPrompt by chatViewModel.systemPrompt.collectAsState()
     
-    // Collect all settings
-    val filterMode by chatSettingsManager.filterMode.collectAsState(initial = MessageFilterMode.OFF)
-    val customDelimiter by chatSettingsManager.customDelimiter.collectAsState(initial = ChatSettingsManager.DEFAULT_DELIMITER)
-    val customDelimiters by chatSettingsManager.customDelimiters.collectAsState(initial = listOf(ChatSettingsManager.DEFAULT_DELIMITER))
-    val paragraphCount by chatSettingsManager.paragraphCount.collectAsState(initial = ChatSettingsManager.DEFAULT_PARAGRAPH_COUNT)
-    val streamingEnabled by chatSettingsManager.streamingEnabled.collectAsState(initial = false)
-    val temperature by chatSettingsManager.temperature.collectAsState(initial = ChatSettingsManager.DEFAULT_TEMPERATURE)
-    val topP by chatSettingsManager.topP.collectAsState(initial = ChatSettingsManager.DEFAULT_TOP_P)
-    val topK by chatSettingsManager.topK.collectAsState(initial = ChatSettingsManager.DEFAULT_TOP_K)
-    val maxOutputTokens by chatSettingsManager.maxOutputTokens.collectAsState(initial = ChatSettingsManager.DEFAULT_MAX_OUTPUT_TOKENS)
-    val presencePenalty by chatSettingsManager.presencePenalty.collectAsState(initial = ChatSettingsManager.DEFAULT_PRESENCE_PENALTY)
-    val frequencyPenalty by chatSettingsManager.frequencyPenalty.collectAsState(initial = ChatSettingsManager.DEFAULT_FREQUENCY_PENALTY)
-    val thinkingEnabled by chatSettingsManager.thinkingEnabled.collectAsState(initial = false)
-    val bedrockSamplingMode by chatSettingsManager.bedrockSamplingMode.collectAsState(
-        initial = ChatSettingsManager.DEFAULT_BEDROCK_SAMPLING_MODE
-    )
-    val bedrockTemperature by chatSettingsManager.bedrockTemperature.collectAsState(
-        initial = ChatSettingsManager.DEFAULT_BEDROCK_TEMPERATURE
-    )
-    val bedrockTopP by chatSettingsManager.bedrockTopP.collectAsState(
-        initial = ChatSettingsManager.DEFAULT_BEDROCK_TOP_P
-    )
-    val bedrockTopK by chatSettingsManager.bedrockTopK.collectAsState(
-        initial = ChatSettingsManager.DEFAULT_BEDROCK_TOP_K
-    )
-    val bedrockTopKEnabled by chatSettingsManager.bedrockTopKEnabled.collectAsState(
-        initial = ChatSettingsManager.DEFAULT_BEDROCK_TOP_K_ENABLED
-    )
-    val bedrockMaxOutputTokens by chatSettingsManager.bedrockMaxOutputTokens.collectAsState(
-        initial = ChatSettingsManager.DEFAULT_BEDROCK_MAX_OUTPUT_TOKENS
-    )
-    val safetyHarassment by chatSettingsManager.safetyHarassment.collectAsState(initial = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE)
-    val safetyHateSpeech by chatSettingsManager.safetyHateSpeech.collectAsState(initial = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE)
-    val safetySexuallyExplicit by chatSettingsManager.safetySexuallyExplicit.collectAsState(initial = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE)
-    val safetyDangerousContent by chatSettingsManager.safetyDangerousContent.collectAsState(initial = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE)
-    val separateCharacterDialogue by chatSettingsManager.separateCharacterDialogue.collectAsState(initial = true)
-    val provideChoicesEnabled by chatSettingsManager.provideChoicesEnabled.collectAsState(initial = true)
-    val responseLength by chatSettingsManager.responseLength.collectAsState(initial = ResponseLength.MEDIUM)
-    
-    // TTS Settings
-    val ttsEnabled by chatSettingsManager.ttsEnabled.collectAsState(initial = false)
-    val autoTtsEnabled by chatSettingsManager.autoTtsEnabled.collectAsState(initial = false)
-    val ttsAudioTagsEnabled by chatSettingsManager.ttsAudioTagsEnabled.collectAsState(initial = false)
-    val narratorVoiceId by chatSettingsManager.narratorVoiceId.collectAsState(initial = "")
-    val ttsModelId by chatSettingsManager.ttsModelId.collectAsState(initial = ChatSettingsManager.DEFAULT_TTS_MODEL_ID)
-    
-    // Unlock Prompt Setting
-    val unlockPromptEnabled by chatSettingsManager.unlockPromptEnabled.collectAsState(initial = false)
-
-    // System Prompt Setting
-    val systemPromptEnabled by chatSettingsManager.systemPromptEnabled.collectAsState(initial = true)
-
-    // Narrator Language Setting
-    val narratorLanguage by chatSettingsManager.narratorLanguage.collectAsState(initial = "en")
-    
-    // AI Model Setting
-    val aiModelId by chatSettingsManager.aiModelId.collectAsState(initial = ChatSettingsManager.DEFAULT_AI_MODEL_ID)
+    val settings by chatViewModel.chatSettings.collectAsState()
+    val filterMode = settings.filterMode
+    val customDelimiters = settings.customDelimiters
+    val paragraphCount = settings.paragraphCount
+    val streamingEnabled = settings.streamingEnabled
+    val temperature = settings.temperature
+    val topP = settings.topP
+    val topK = settings.topK
+    val maxOutputTokens = settings.maxOutputTokens
+    val presencePenalty = settings.presencePenalty
+    val frequencyPenalty = settings.frequencyPenalty
+    val thinkingEnabled = settings.thinkingEnabled
+    val bedrockSamplingMode = settings.bedrockSamplingMode
+    val bedrockTemperature = settings.bedrockTemperature
+    val bedrockTopP = settings.bedrockTopP
+    val bedrockTopK = settings.bedrockTopK
+    val bedrockTopKEnabled = settings.bedrockTopKEnabled
+    val bedrockMaxOutputTokens = settings.bedrockMaxOutputTokens
+    val safetyHarassment = settings.safetyHarassment
+    val safetyHateSpeech = settings.safetyHateSpeech
+    val safetySexuallyExplicit = settings.safetySexuallyExplicit
+    val safetyDangerousContent = settings.safetyDangerousContent
+    val separateCharacterDialogue = settings.separateCharacterDialogue
+    val provideChoicesEnabled = settings.provideChoicesEnabled
+    val responseLength = settings.responseLength
+    val ttsEnabled = settings.ttsEnabled
+    val autoTtsEnabled = settings.autoTtsEnabled
+    val ttsAudioTagsEnabled = settings.ttsAudioTagsEnabled
+    val narratorVoiceId = settings.narratorVoiceId
+    val ttsModelId = settings.ttsModelId
+    val unlockPromptEnabled = settings.unlockPromptEnabled
+    val systemPromptEnabled = settings.systemPromptEnabled
+    val narratorLanguage = settings.narratorLanguage
+    val aiModelId = settings.aiModelId
     val isBedrockModel = ChatSettingsManager.aiProviderFor(aiModelId) == AiProvider.BEDROCK
     
     // Saved ElevenLabs voices and the live Inworld catalog
@@ -317,7 +293,11 @@ fun ChatSettingsScreen(
                         title = "Separate Character Dialogue",
                         description = "Display character speech as individual messages with avatars",
                         checked = separateCharacterDialogue,
-                        onCheckedChange = { scope.launch { chatSettingsManager.setSeparateCharacterDialogue(it) } }
+                        onCheckedChange = { enabled ->
+                            chatViewModel.updateChatSettings {
+                                it.copy(separateCharacterDialogue = enabled)
+                            }
+                        }
                     )
                     
                     // Provide Action & Dialogue Choices Toggle
@@ -325,7 +305,11 @@ fun ChatSettingsScreen(
                         title = "Provide Action & Dialogue Choices",
                         description = "AI will provide clickable action and dialogue options at the end of messages",
                         checked = provideChoicesEnabled,
-                        onCheckedChange = { scope.launch { chatSettingsManager.setProvideChoicesEnabled(it) } }
+                        onCheckedChange = { enabled ->
+                            chatViewModel.updateChatSettings {
+                                it.copy(provideChoicesEnabled = enabled)
+                            }
+                        }
                     )
                     
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
@@ -342,7 +326,9 @@ fun ChatSettingsScreen(
                         description = "Display complete AI responses",
                         selected = filterMode == MessageFilterMode.OFF,
                         onClick = {
-                            scope.launch { chatSettingsManager.setFilterMode(MessageFilterMode.OFF) }
+                            chatViewModel.updateChatSettings {
+                                it.copy(filterMode = MessageFilterMode.OFF)
+                            }
                         }
                     )
                     
@@ -351,12 +337,17 @@ fun ChatSettingsScreen(
                         description = "Show only the last $paragraphCount paragraph${if (paragraphCount > 1) "s" else ""}",
                         selected = filterMode == MessageFilterMode.LAST_N_PARAGRAPHS,
                         onClick = {
-                            scope.launch { chatSettingsManager.setFilterMode(MessageFilterMode.LAST_N_PARAGRAPHS) }
+                            chatViewModel.updateChatSettings {
+                                it.copy(filterMode = MessageFilterMode.LAST_N_PARAGRAPHS)
+                            }
                         }
                     )
                     
                     if (filterMode == MessageFilterMode.LAST_N_PARAGRAPHS) {
                         Spacer(modifier = Modifier.height(8.dp))
+                        var paragraphSliderValue by remember(paragraphCount) {
+                            mutableFloatStateOf(paragraphCount.toFloat())
+                        }
                         Column {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -372,7 +363,7 @@ fun ChatSettingsScreen(
                                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
                                 ) {
                                     Text(
-                                        text = paragraphCount.toString(),
+                                        text = paragraphSliderValue.roundToInt().toString(),
                                         style = MaterialTheme.typography.bodyMedium,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.primary,
@@ -381,9 +372,16 @@ fun ChatSettingsScreen(
                                 }
                             }
                             Slider(
-                                value = paragraphCount.toFloat(),
-                                onValueChange = { newValue ->
-                                    scope.launch { chatSettingsManager.setParagraphCount(newValue.toInt()) }
+                                value = paragraphSliderValue,
+                                onValueChange = { paragraphSliderValue = it },
+                                onValueChangeFinished = {
+                                    chatViewModel.updateChatSettings {
+                                        it.copy(
+                                            paragraphCount = paragraphSliderValue
+                                                .roundToInt()
+                                                .coerceIn(1, 20)
+                                        )
+                                    }
                                 },
                                 valueRange = 1f..20f,
                                 steps = 18,
@@ -397,7 +395,9 @@ fun ChatSettingsScreen(
                         description = "Show text appearing after a specific symbol",
                         selected = filterMode == MessageFilterMode.AFTER_DELIMITER,
                         onClick = {
-                            scope.launch { chatSettingsManager.setFilterMode(MessageFilterMode.AFTER_DELIMITER) }
+                            chatViewModel.updateChatSettings {
+                                it.copy(filterMode = MessageFilterMode.AFTER_DELIMITER)
+                            }
                         }
                     )
                     
@@ -513,8 +513,15 @@ fun ChatSettingsScreen(
                             Spacer(modifier = Modifier.height(8.dp))
                             Button(
                                 onClick = {
-                                    scope.launch { 
-                                        chatSettingsManager.setCustomDelimiters(delimiterInputs.filter { it.isNotEmpty() })
+                                    val delimiters = delimiterInputs.filter { it.isNotEmpty() }
+                                    chatViewModel.updateChatSettings {
+                                        it.copy(
+                                            customDelimiter = delimiters.firstOrNull()
+                                                ?: ChatSettingsManager.DEFAULT_DELIMITER,
+                                            customDelimiters = delimiters.ifEmpty {
+                                                listOf(ChatSettingsManager.DEFAULT_DELIMITER)
+                                            }
+                                        )
                                     }
                                 },
                                 modifier = Modifier.fillMaxWidth()
@@ -536,7 +543,11 @@ fun ChatSettingsScreen(
                             title = "Streaming",
                             description = "See responses appear in real-time as they're generated",
                             checked = streamingEnabled,
-                            onCheckedChange = { scope.launch { chatSettingsManager.setStreamingEnabled(it) } }
+                            onCheckedChange = { enabled ->
+                                chatViewModel.updateChatSettings {
+                                    it.copy(streamingEnabled = enabled)
+                                }
+                            }
                         )
 
                         Spacer(modifier = Modifier.height(8.dp))
@@ -545,7 +556,9 @@ fun ChatSettingsScreen(
                     // Response Length Dropdown
                     ResponseLengthDropdown(
                         value = responseLength,
-                        onValueChange = { scope.launch { chatSettingsManager.setResponseLength(it) } }
+                        onValueChange = { length ->
+                            chatViewModel.updateChatSettings { it.copy(responseLength = length) }
+                        }
                     )
                     
                     Spacer(modifier = Modifier.height(8.dp))
@@ -585,7 +598,9 @@ fun ChatSettingsScreen(
                                 DropdownMenuItem(
                                     text = { Text(name) },
                                     onClick = {
-                                        scope.launch { chatSettingsManager.setNarratorLanguage(code) }
+                                        chatViewModel.updateChatSettings {
+                                            it.copy(narratorLanguage = code)
+                                        }
                                         narratorLangExpanded = false
                                     },
                                     leadingIcon = if (code == narratorLanguage) {
@@ -601,8 +616,10 @@ fun ChatSettingsScreen(
                     if (isBedrockModel) {
                         BedrockSamplingModeSelector(
                             value = bedrockSamplingMode,
-                            onValueChange = {
-                                scope.launch { chatSettingsManager.setBedrockSamplingMode(it) }
+                            onValueChange = { mode ->
+                                chatViewModel.updateChatSettings {
+                                    it.copy(bedrockSamplingMode = mode)
+                                }
                             }
                         )
 
@@ -615,8 +632,10 @@ fun ChatSettingsScreen(
                                     valueRange = 0f..1f,
                                     steps = 19,
                                     valueFormatter = { String.format("%.2f", it) },
-                                    onValueChange = {
-                                        scope.launch { chatSettingsManager.setBedrockTemperature(it) }
+                                    onValueChange = { value ->
+                                        chatViewModel.updateChatSettings {
+                                            it.copy(bedrockTemperature = value.coerceIn(0f, 1f))
+                                        }
                                     }
                                 )
                             }
@@ -628,8 +647,10 @@ fun ChatSettingsScreen(
                                     valueRange = 0f..1f,
                                     steps = 999,
                                     valueFormatter = { String.format("%.3f", it) },
-                                    onValueChange = {
-                                        scope.launch { chatSettingsManager.setBedrockTopP(it) }
+                                    onValueChange = { value ->
+                                        chatViewModel.updateChatSettings {
+                                            it.copy(bedrockTopP = value.coerceIn(0f, 1f))
+                                        }
                                     }
                                 )
                             }
@@ -639,8 +660,10 @@ fun ChatSettingsScreen(
                             title = "Top K",
                             description = "Limit sampling to the highest-probability tokens",
                             checked = bedrockTopKEnabled,
-                            onCheckedChange = {
-                                scope.launch { chatSettingsManager.setBedrockTopKEnabled(it) }
+                            onCheckedChange = { enabled ->
+                                chatViewModel.updateChatSettings {
+                                    it.copy(bedrockTopKEnabled = enabled)
+                                }
                             }
                         )
 
@@ -652,8 +675,10 @@ fun ChatSettingsScreen(
                                 valueRange = 0f..500f,
                                 steps = 499,
                                 valueFormatter = { it.roundToInt().toString() },
-                                onValueChange = {
-                                    scope.launch { chatSettingsManager.setBedrockTopK(it.roundToInt()) }
+                                onValueChange = { value ->
+                                    chatViewModel.updateChatSettings {
+                                        it.copy(bedrockTopK = value.roundToInt().coerceIn(0, 500))
+                                    }
                                 }
                             )
                         }
@@ -665,9 +690,12 @@ fun ChatSettingsScreen(
                             valueRange = 256f..128_000f,
                             steps = 127,
                             valueFormatter = { it.roundToInt().toString() },
-                            onValueChange = {
-                                scope.launch {
-                                    chatSettingsManager.setBedrockMaxOutputTokens(it.roundToInt())
+                            onValueChange = { value ->
+                                chatViewModel.updateChatSettings {
+                                    it.copy(
+                                        bedrockMaxOutputTokens = value.roundToInt()
+                                            .coerceIn(1, 128_000)
+                                    )
                                 }
                             }
                         )
@@ -679,7 +707,11 @@ fun ChatSettingsScreen(
                             valueRange = 0f..2f,
                             steps = 19,
                             valueFormatter = { String.format("%.1f", it) },
-                            onValueChange = { scope.launch { chatSettingsManager.setTemperature(it) } }
+                            onValueChange = { value ->
+                                chatViewModel.updateChatSettings {
+                                    it.copy(temperature = value.coerceIn(0f, 2f))
+                                }
+                            }
                         )
 
                         SettingsSlider(
@@ -689,7 +721,11 @@ fun ChatSettingsScreen(
                             valueRange = 0f..1f,
                             steps = 19,
                             valueFormatter = { String.format("%.2f", it) },
-                            onValueChange = { scope.launch { chatSettingsManager.setTopP(it) } }
+                            onValueChange = { value ->
+                                chatViewModel.updateChatSettings {
+                                    it.copy(topP = value.coerceIn(0f, 1f))
+                                }
+                            }
                         )
 
                         SettingsSlider(
@@ -699,7 +735,11 @@ fun ChatSettingsScreen(
                             valueRange = 1f..100f,
                             steps = 98,
                             valueFormatter = { it.roundToInt().toString() },
-                            onValueChange = { scope.launch { chatSettingsManager.setTopK(it.roundToInt()) } }
+                            onValueChange = { value ->
+                                chatViewModel.updateChatSettings {
+                                    it.copy(topK = value.roundToInt().coerceIn(1, 100))
+                                }
+                            }
                         )
 
                         SettingsSlider(
@@ -709,7 +749,13 @@ fun ChatSettingsScreen(
                             valueRange = 256f..32768f,
                             steps = 127,
                             valueFormatter = { it.roundToInt().toString() },
-                            onValueChange = { scope.launch { chatSettingsManager.setMaxOutputTokens(it.roundToInt()) } }
+                            onValueChange = { value ->
+                                chatViewModel.updateChatSettings {
+                                    it.copy(
+                                        maxOutputTokens = value.roundToInt().coerceIn(1, 65_536)
+                                    )
+                                }
+                            }
                         )
                     }
                 }
@@ -743,7 +789,9 @@ fun ChatSettingsScreen(
                         title = "Enable Text-to-Speech",
                         description = "Add play buttons to AI messages for voice playback",
                         checked = ttsEnabled,
-                        onCheckedChange = { scope.launch { chatSettingsManager.setTtsEnabled(it) } }
+                        onCheckedChange = { enabled ->
+                            chatViewModel.updateChatSettings { it.copy(ttsEnabled = enabled) }
+                        }
                     )
                     
                     if (ttsEnabled) {
@@ -754,7 +802,11 @@ fun ChatSettingsScreen(
                             title = "Auto-play TTS",
                             description = "Automatically speak AI responses as they appear",
                             checked = autoTtsEnabled,
-                            onCheckedChange = { scope.launch { chatSettingsManager.setAutoTtsEnabled(it) } }
+                            onCheckedChange = { enabled ->
+                                chatViewModel.updateChatSettings {
+                                    it.copy(autoTtsEnabled = enabled)
+                                }
+                            }
                         )
                         
                         // Audio Tags Toggle
@@ -762,7 +814,11 @@ fun ChatSettingsScreen(
                             title = "Enable Audio Tags",
                             description = "AI will include performance directions like [whispers], [laughs] for realistic speech",
                             checked = ttsAudioTagsEnabled,
-                            onCheckedChange = { scope.launch { chatSettingsManager.setTtsAudioTagsEnabled(it) } }
+                            onCheckedChange = { enabled ->
+                                chatViewModel.updateChatSettings {
+                                    it.copy(ttsAudioTagsEnabled = enabled)
+                                }
+                            }
                         )
                         
                         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
@@ -811,7 +867,9 @@ fun ChatSettingsScreen(
                                             }
                                         },
                                         onClick = {
-                                            scope.launch { chatSettingsManager.setTtsModelId(model.modelId) }
+                                            chatViewModel.updateChatSettings {
+                                                it.copy(ttsModelId = model.modelId)
+                                            }
                                             modelExpanded = false
                                         }
                                     )
@@ -927,7 +985,9 @@ fun ChatSettingsScreen(
                                                 }
                                             },
                                             onClick = {
-                                                scope.launch { chatSettingsManager.setNarratorVoiceId(voice.voiceId) }
+                                                chatViewModel.updateChatSettings {
+                                                    it.copy(narratorVoiceId = voice.voiceId)
+                                                }
                                                 voiceExpanded = false
                                             }
                                         )
@@ -951,7 +1011,11 @@ fun ChatSettingsScreen(
                             valueRange = -2f..2f,
                             steps = 39,
                             valueFormatter = { String.format("%.1f", it) },
-                            onValueChange = { scope.launch { chatSettingsManager.setPresencePenalty(it) } }
+                            onValueChange = { value ->
+                                chatViewModel.updateChatSettings {
+                                    it.copy(presencePenalty = value.coerceIn(-2f, 2f))
+                                }
+                            }
                         )
 
                         SettingsSlider(
@@ -961,7 +1025,11 @@ fun ChatSettingsScreen(
                             valueRange = -2f..2f,
                             steps = 39,
                             valueFormatter = { String.format("%.1f", it) },
-                            onValueChange = { scope.launch { chatSettingsManager.setFrequencyPenalty(it) } }
+                            onValueChange = { value ->
+                                chatViewModel.updateChatSettings {
+                                    it.copy(frequencyPenalty = value.coerceIn(-2f, 2f))
+                                }
+                            }
                         )
                     }
 
@@ -980,25 +1048,41 @@ fun ChatSettingsScreen(
                         SafetySettingDropdown(
                             title = "Harassment",
                             value = safetyHarassment,
-                            onValueChange = { scope.launch { chatSettingsManager.setSafetyHarassment(it) } }
+                            onValueChange = { threshold ->
+                                chatViewModel.updateChatSettings {
+                                    it.copy(safetyHarassment = threshold)
+                                }
+                            }
                         )
 
                         SafetySettingDropdown(
                             title = "Hate Speech",
                             value = safetyHateSpeech,
-                            onValueChange = { scope.launch { chatSettingsManager.setSafetyHateSpeech(it) } }
+                            onValueChange = { threshold ->
+                                chatViewModel.updateChatSettings {
+                                    it.copy(safetyHateSpeech = threshold)
+                                }
+                            }
                         )
 
                         SafetySettingDropdown(
                             title = "Sexually Explicit",
                             value = safetySexuallyExplicit,
-                            onValueChange = { scope.launch { chatSettingsManager.setSafetySexuallyExplicit(it) } }
+                            onValueChange = { threshold ->
+                                chatViewModel.updateChatSettings {
+                                    it.copy(safetySexuallyExplicit = threshold)
+                                }
+                            }
                         )
 
                         SafetySettingDropdown(
                             title = "Dangerous Content",
                             value = safetyDangerousContent,
-                            onValueChange = { scope.launch { chatSettingsManager.setSafetyDangerousContent(it) } }
+                            onValueChange = { threshold ->
+                                chatViewModel.updateChatSettings {
+                                    it.copy(safetyDangerousContent = threshold)
+                                }
+                            }
                         )
                     }
                 }
@@ -1014,7 +1098,11 @@ fun ChatSettingsScreen(
                             title = "Thinking Mode",
                             description = "Enable extended reasoning for better narrative planning (Gemini 3+)",
                             checked = thinkingEnabled,
-                            onCheckedChange = { scope.launch { chatSettingsManager.setThinkingEnabled(it) } }
+                            onCheckedChange = { enabled ->
+                                chatViewModel.updateChatSettings {
+                                    it.copy(thinkingEnabled = enabled)
+                                }
+                            }
                         )
                     }
 
@@ -1023,7 +1111,11 @@ fun ChatSettingsScreen(
                         title = "Enable System Prompt",
                         description = "Send system instructions with model requests",
                         checked = systemPromptEnabled,
-                        onCheckedChange = { scope.launch { chatSettingsManager.setSystemPromptEnabled(it) } }
+                        onCheckedChange = { enabled ->
+                            chatViewModel.updateChatSettings {
+                                it.copy(systemPromptEnabled = enabled)
+                            }
+                        }
                     )
 
                     // Unlock Prompt Toggle
@@ -1031,7 +1123,11 @@ fun ChatSettingsScreen(
                         title = "Enable Unlock Prompt",
                         description = "Include the unlock prompt from app settings at the start of system instructions",
                         checked = unlockPromptEnabled,
-                        onCheckedChange = { scope.launch { chatSettingsManager.setUnlockPromptEnabled(it) } }
+                        onCheckedChange = { enabled ->
+                            chatViewModel.updateChatSettings {
+                                it.copy(unlockPromptEnabled = enabled)
+                            }
+                        }
                     )
                     
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
@@ -1531,7 +1627,9 @@ fun ChatSettingsScreen(
                                                     }
                                                 },
                                                 onClick = {
-                                                    scope.launch { chatSettingsManager.setAiModelId(model.modelId) }
+                                                    chatViewModel.updateChatSettings {
+                                                        it.copy(aiModelId = model.modelId)
+                                                    }
                                                     aiModelExpanded = false
                                                 },
                                                 leadingIcon = if (model.modelId == aiModelId) {
@@ -1558,7 +1656,7 @@ fun ChatSettingsScreen(
                             TextButton(
                                 onClick = {
                                     showRestoreConfirmDialog = false
-                                    scope.launch { chatSettingsManager.restoreDefaults() }
+                                    chatViewModel.restoreChatSettingsDefaults()
                                 }
                             ) {
                                 Text("Restore", color = MaterialTheme.colorScheme.error)
@@ -1752,6 +1850,8 @@ private fun SettingsSlider(
     valueFormatter: (Float) -> String,
     onValueChange: (Float) -> Unit
 ) {
+    var sliderValue by remember(value) { mutableFloatStateOf(value) }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1772,7 +1872,7 @@ private fun SettingsSlider(
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
             ) {
                 Text(
-                    text = valueFormatter(value),
+                    text = valueFormatter(sliderValue),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
@@ -1786,8 +1886,9 @@ private fun SettingsSlider(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Slider(
-            value = value,
-            onValueChange = onValueChange,
+            value = sliderValue,
+            onValueChange = { sliderValue = it },
+            onValueChangeFinished = { onValueChange(sliderValue) },
             valueRange = valueRange,
             steps = steps,
             modifier = Modifier.padding(top = 4.dp)

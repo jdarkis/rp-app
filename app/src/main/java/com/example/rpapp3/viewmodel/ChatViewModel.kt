@@ -63,6 +63,7 @@ import com.google.ai.client.generativeai.type.generationConfig
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
@@ -73,7 +74,6 @@ class ChatViewModel : ViewModel() {
     
     private var apiKeyManager: ApiKeyManager? = null
     private var bedrockApiKeyManager: BedrockApiKeyManager? = null
-    private var chatSettingsManager: ChatSettingsManager? = null
     private var currentApiKey: String? = null
     private var currentSettings: ChatSettings = ChatSettings()
     private var currentAiProvider: AiProvider = AiProvider.GEMINI
@@ -108,6 +108,12 @@ class ChatViewModel : ViewModel() {
     
     private val _currentChat = MutableStateFlow<Chat?>(null)
     val currentChat: StateFlow<Chat?> = _currentChat
+
+    private val _chatSettings = MutableStateFlow(ChatSettings())
+    val chatSettings: StateFlow<ChatSettings> = _chatSettings
+    private val settingsUpdates = Channel<ChatSettingsUpdate>(Channel.UNLIMITED)
+    private var latestPendingSettings: ChatSettingsUpdate? = null
+    private var chatObservationJob: Job? = null
     
     private val _characters = MutableStateFlow<List<Character>>(emptyList())
     val characters: StateFlow<List<Character>> = _characters
@@ -124,6 +130,26 @@ class ChatViewModel : ViewModel() {
     
     private val _error = mutableStateOf<String?>(null)
     val error: String? get() = _error.value
+
+    init {
+        viewModelScope.launch {
+            for (update in settingsUpdates) {
+                chatRepository.updateChatSettings(update.chatId, update.settings)
+                    .onFailure { e ->
+                        _error.value = e.message ?: "Failed to save chat settings"
+                        if (latestPendingSettings == update) {
+                            latestPendingSettings = null
+                            chatRepository.getChat(update.chatId)?.let { persistedChat ->
+                                if (_currentChat.value?.id == persistedChat.id) {
+                                    _currentChat.value = persistedChat
+                                    _chatSettings.value = persistedChat.settings
+                                }
+                            }
+                        }
+                    }
+            }
+        }
+    }
     
     // Exposed for viewing in settings
     private val _systemPrompt = MutableStateFlow<String?>(null)
@@ -164,7 +190,6 @@ class ChatViewModel : ViewModel() {
             appContext = context.applicationContext
             apiKeyManager = ApiKeyManager.getInstance(context)
             bedrockApiKeyManager = BedrockApiKeyManager.getInstance(context)
-            chatSettingsManager = ChatSettingsManager.getInstance(context)
             elevenLabsService = ElevenLabsService.getInstance(context)
             inworldService = InworldService.getInstance(context)
             _ttsManager = TTSManager.getInstance(context)
@@ -175,8 +200,6 @@ class ChatViewModel : ViewModel() {
                 // Reset to first key on app start - quotas may have reset
                 apiKeyManager?.resetKeyIndex()
                 currentApiKey = apiKeyManager?.getCurrentApiKey()
-                // Load current settings
-                currentSettings = chatSettingsManager?.getCurrentSettings() ?: ChatSettings()
                 // Initialize ElevenLabs
                 elevenLabsService?.initialize()
                 inworldService?.initialize()
@@ -226,7 +249,8 @@ class ChatViewModel : ViewModel() {
             val chat = Chat(
                 worldId = worldId,
                 title = title.ifBlank { "New Chat" },
-                characterIds = characterIds
+                characterIds = characterIds,
+                settings = ChatSettings()
             )
             
             chatRepository.createChat(chat)
@@ -274,8 +298,31 @@ class ChatViewModel : ViewModel() {
             // Load world
             _world.value = worldRepository.getWorld(worldId)
             
-            // Load chat
+            // Load chat and its independent settings.
             _currentChat.value = chatRepository.getChat(chatId)
+            _chatSettings.value = _currentChat.value?.settings ?: ChatSettings()
+            chatObservationJob?.cancel()
+            chatObservationJob = viewModelScope.launch {
+                chatRepository.observeChat(chatId)
+                    .catch { e -> _error.value = e.message }
+                    .collect { observedChat ->
+                        if (observedChat != null) {
+                            val pending = latestPendingSettings
+                                ?.takeIf { it.chatId == observedChat.id }
+                            if (pending == null || pending.settings == observedChat.settings) {
+                                if (pending?.settings == observedChat.settings) {
+                                    latestPendingSettings = null
+                                }
+                                _currentChat.value = observedChat
+                                _chatSettings.value = observedChat.settings
+                            } else {
+                                _currentChat.value = observedChat.copy(
+                                    settings = pending.settings
+                                )
+                            }
+                        }
+                    }
+            }
             
             // Load FULL message history for AI context (all messages)
             try {
@@ -378,8 +425,7 @@ class ChatViewModel : ViewModel() {
         val world = _world.value
         val characters = _characters.value
         
-        // Reload settings in case they changed
-        currentSettings = chatSettingsManager?.getCurrentSettings() ?: ChatSettings()
+        currentSettings = _chatSettings.value.effectiveForSelectedProvider()
         currentAiProvider = ChatSettingsManager.aiProviderFor(currentSettings.aiModelId)
         
         val systemInstructions = if (currentSettings.systemPromptEnabled) {
@@ -686,7 +732,7 @@ class ChatViewModel : ViewModel() {
         requestDetailsRecorded: Boolean = false
     ) {
         val userMessage = userChatMessage.text
-        currentSettings = chatSettingsManager?.getCurrentSettings() ?: ChatSettings()
+        currentSettings = _chatSettings.value.effectiveForSelectedProvider()
         currentAiProvider = ChatSettingsManager.aiProviderFor(currentSettings.aiModelId)
         var detailsRecorded = requestDetailsRecorded
 
@@ -1139,6 +1185,22 @@ class ChatViewModel : ViewModel() {
             ?: return Result.failure(IllegalStateException("Chat is not loaded"))
         return chatRepository.getModelRequestDetails(chatId, messageId)
     }
+
+    fun updateChatSettings(transform: (ChatSettings) -> ChatSettings) {
+        val chat = _currentChat.value ?: return
+        val updatedSettings = transform(_chatSettings.value)
+        if (updatedSettings == _chatSettings.value) return
+
+        _chatSettings.value = updatedSettings
+        _currentChat.value = chat.copy(settings = updatedSettings)
+        val update = ChatSettingsUpdate(chat.id, updatedSettings)
+        latestPendingSettings = update
+        settingsUpdates.trySend(update)
+    }
+
+    fun restoreChatSettingsDefaults() {
+        updateChatSettings { ChatSettings() }
+    }
     
     fun deleteChat(chatId: String, onSuccess: () -> Unit, onError: (String) -> Unit) {
         viewModelScope.launch {
@@ -1353,7 +1415,7 @@ class ChatViewModel : ViewModel() {
             startTtsGeneration(messageId)
             try {
                 // Reload settings to get latest TTS config
-                currentSettings = chatSettingsManager?.getCurrentSettings() ?: ChatSettings()
+                currentSettings = _chatSettings.value.effectiveForSelectedProvider()
                 Log.d("ChatViewModel", "TTS enabled: ${currentSettings.ttsEnabled}")
                 Log.d("ChatViewModel", "Narrator voice ID: ${currentSettings.narratorVoiceId}")
                 Log.d("ChatViewModel", "TTS model ID: ${currentSettings.ttsModelId}")
@@ -1421,7 +1483,7 @@ class ChatViewModel : ViewModel() {
             startTtsGeneration(segmentId)
             try {
                 // Reload settings to get latest TTS config
-                currentSettings = chatSettingsManager?.getCurrentSettings() ?: ChatSettings()
+                currentSettings = _chatSettings.value.effectiveForSelectedProvider()
                 
                 if (!currentSettings.ttsEnabled) {
                     Log.w("ChatViewModel", "TTS is disabled in settings")
@@ -1662,8 +1724,7 @@ class ChatViewModel : ViewModel() {
         segmentIndex: Int? = null
     ): SegmentAudioResult {
         try {
-            val currentSettings = chatSettingsManager?.getCurrentSettings() 
-                ?: return SegmentAudioResult(null, "", "TTS settings are unavailable")
+            val currentSettings = _chatSettings.value.effectiveForSelectedProvider()
             if (!currentSettings.ttsEnabled) {
                 return SegmentAudioResult(null, "", "TTS is disabled")
             }
@@ -1862,4 +1923,9 @@ class ChatViewModel : ViewModel() {
     private fun ttsFailureMessage(error: Throwable): String {
         return "TTS failed: ${error.message?.take(300) ?: "Unknown error"}"
     }
+
+    private data class ChatSettingsUpdate(
+        val chatId: String,
+        val settings: ChatSettings
+    )
 }
