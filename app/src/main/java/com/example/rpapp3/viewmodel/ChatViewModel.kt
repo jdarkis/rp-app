@@ -17,14 +17,16 @@ import com.example.rpapp3.data.ResponseLength
 import com.example.rpapp3.data.SafetyThreshold
 import com.example.rpapp3.data.TTSManager
 import com.example.rpapp3.data.TTSPlaybackState
+import com.example.rpapp3.data.TtsGenerationState
+import com.example.rpapp3.data.TtsProvider
+import com.example.rpapp3.data.TtsRequestResolver
+import com.example.rpapp3.data.ResolvedTtsRequest
 import com.example.rpapp3.data.StorySummarizerService
 import com.example.rpapp3.data.SummaryDetailLevel
 import com.example.rpapp3.data.SummaryResult
 import com.example.rpapp3.data.model.Character
 import com.example.rpapp3.data.model.Chat
 import com.example.rpapp3.data.model.ChatMessage
-import com.example.rpapp3.data.model.ElevenLabsTTSModels
-import com.example.rpapp3.data.model.InworldTTSModels
 import com.example.rpapp3.data.model.SegmentAudioCache
 import com.example.rpapp3.data.model.SummaryProposal
 import com.example.rpapp3.data.model.World
@@ -49,6 +51,8 @@ import com.google.ai.client.generativeai.type.ToolConfig
 import com.google.ai.client.generativeai.type.content
 import com.google.ai.client.generativeai.type.generationConfig
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
@@ -67,6 +71,9 @@ class ChatViewModel : ViewModel() {
     private var inworldService: InworldService? = null
     private var _ttsManager: TTSManager? = null
     val ttsManager: TTSManager? get() = _ttsManager
+    private val _ttsGenerationState = MutableStateFlow(TtsGenerationState())
+    val ttsGenerationState: StateFlow<TtsGenerationState> = _ttsGenerationState
+    private var ttsGenerationJob: Job? = null
     
     private val worldRepository = WorldRepository()
     private val characterRepository = CharacterRepository()
@@ -978,6 +985,10 @@ class ChatViewModel : ViewModel() {
     fun clearError() {
         _error.value = null
     }
+
+    fun clearTtsError() {
+        _ttsGenerationState.value = _ttsGenerationState.value.copy(errorMessage = null)
+    }
     
     // ==================== STORY SUMMARIZER METHODS ====================
     
@@ -1123,7 +1134,9 @@ class ChatViewModel : ViewModel() {
         
         Log.d("ChatViewModel", "Found message: ${message.text.take(50)}...")
         
-        viewModelScope.launch {
+        ttsGenerationJob?.cancel()
+        ttsGenerationJob = viewModelScope.launch {
+            startTtsGeneration(messageId)
             try {
                 // Reload settings to get latest TTS config
                 currentSettings = chatSettingsManager?.getCurrentSettings() ?: ChatSettings()
@@ -1133,33 +1146,15 @@ class ChatViewModel : ViewModel() {
                 
                 if (!currentSettings.ttsEnabled) {
                     Log.w("ChatViewModel", "TTS is disabled in settings")
+                    finishTtsGeneration(messageId)
                     return@launch
                 }
-                
-                // Determine voice to use
-                var voiceId = currentSettings.narratorVoiceId.takeIf { it.isNotBlank() }
-                var language: String? = null
-                
-                // Check if message has a character with a specific voice
-                message.characterId?.let { charId ->
-                    val character = _characters.value.find { it.id == charId }
-                        ?: _worldCharacters.value.find { it.id == charId }
-                    character?.let {
-                        if (!it.voiceId.isNullOrBlank()) {
-                            voiceId = it.voiceId
-                            language = it.language
-                            Log.d("ChatViewModel", "Using character voice: $voiceId")
-                        }
-                    }
-                }
-                
-                if (voiceId.isNullOrBlank()) {
-                    Log.e("ChatViewModel", "No voice ID configured - set a narrator voice in Chat Settings")
+
+                val request = resolveTtsRequest(message.characterId, currentSettings)
+                if (request == null) {
+                    failTtsGeneration(messageId, "No TTS voice is configured")
                     return@launch
                 }
-                
-                val modelId = currentSettings.ttsModelId.takeIf { it.isNotBlank() }
-                    ?: ElevenLabsTTSModels.DEFAULT_MODEL_ID
                 
                 // Clean text - remove dialogue markers and action markers
                 val cleanText = message.text
@@ -1169,51 +1164,32 @@ class ChatViewModel : ViewModel() {
                 
                 if (cleanText.isBlank()) {
                     Log.w("ChatViewModel", "Message text is empty after cleaning")
+                    failTtsGeneration(messageId, "There is no speakable text")
                     return@launch
                 }
                 
-                Log.d("ChatViewModel", "Generating TTS: voice=$voiceId, model=$modelId, text=${cleanText.take(100)}...")
-                
-                val isInworldModel = modelId == InworldTTSModels.INWORLD_TTS_1_5_MAX.modelId
-                val isInworldVoice = voiceId!!.startsWith("workspaces/") || voiceId!!.startsWith("voices/")
-                
-                val result = if (isInworldModel) {
-                    // Force Inworld service if Inworld model is selected
-                    if (!isInworldVoice) {
-                        Log.w("ChatViewModel", "Inworld model selected but voice '$voiceId' does not appear to be an Inworld voice")
-                        // Try anyway, or maybe fall back to a default? 
-                        // For now we proceed but log warning. Inworld might reject the ID.
-                    }
-                    inworldService?.textToSpeech(cleanText, voiceId!!, modelId)
-                } else if (isInworldVoice) {
-                     // Inworld voice but non-Inworld model? (Assume user wants Inworld service if voice is Inworld)
-                     // But strictly speaking, if model IS NOT Inworld, we might be in "ElevenLabs" mode.
-                     // However, ElevenLabs service will definitely fail with an Inworld voice ID.
-                     // So we route to Inworld service if the VOICE is Inworld, ignoring the model ID mismatch (or passing it along)
-                     inworldService?.textToSpeech(cleanText, voiceId!!, modelId)
-                } else {
-                    // ElevenLabs
-                    elevenLabsService?.textToSpeech(
-                        text = cleanText,
-                        voiceId = voiceId!!,
-                        modelId = modelId,
-                        language = language
-                    )
-                }
+                Log.d("ChatViewModel", "Generating TTS: provider=${request.provider}, voice=${request.voiceId}, model=${request.modelId}")
+                val result = synthesizeSpeech(cleanText, request)
                 
                 if (result == null) {
-                    Log.e("ChatViewModel", "ElevenLabsService is null!")
+                    failTtsGeneration(messageId, "TTS service is unavailable")
                     return@launch
                 }
                 
                 result.onSuccess { audioData ->
                     Log.d("ChatViewModel", "TTS generation successful, playing audio (${audioData.size} bytes)")
+                    finishTtsGeneration(messageId)
                     _ttsManager?.playFromBytes(audioData, messageId)
                 }.onFailure { e ->
                     Log.e("ChatViewModel", "TTS generation failed: ${e.message}", e)
+                    failTtsGeneration(messageId, ttsFailureMessage(e))
                 }
+            } catch (error: CancellationException) {
+                finishTtsGeneration(messageId)
+                throw error
             } catch (e: Exception) {
                 Log.e("ChatViewModel", "Exception in speakMessage: ${e.message}", e)
+                failTtsGeneration(messageId, ttsFailureMessage(e))
             }
         }
     }
@@ -1224,41 +1200,26 @@ class ChatViewModel : ViewModel() {
      */
     fun speakText(text: String, characterId: String? = null) {
         Log.d("ChatViewModel", "speakText called with text: ${text.take(50)}..., characterId: $characterId")
-        
-        viewModelScope.launch {
+
+        val segmentId = "${System.currentTimeMillis()}_${text.hashCode()}"
+        ttsGenerationJob?.cancel()
+        ttsGenerationJob = viewModelScope.launch {
+            startTtsGeneration(segmentId)
             try {
                 // Reload settings to get latest TTS config
                 currentSettings = chatSettingsManager?.getCurrentSettings() ?: ChatSettings()
                 
                 if (!currentSettings.ttsEnabled) {
                     Log.w("ChatViewModel", "TTS is disabled in settings")
+                    finishTtsGeneration(segmentId)
                     return@launch
                 }
-                
-                // Determine voice to use
-                var voiceId = currentSettings.narratorVoiceId.takeIf { it.isNotBlank() }
-                var language: String? = null
-                
-                // Check if we have a character with a specific voice
-                characterId?.let { charId ->
-                    val character = _characters.value.find { it.id == charId }
-                        ?: _worldCharacters.value.find { it.id == charId }
-                    character?.let { char ->
-                        if (!char.voiceId.isNullOrBlank()) {
-                            voiceId = char.voiceId
-                            language = char.language
-                            Log.d("ChatViewModel", "Using character voice: $voiceId for ${char.name}")
-                        }
-                    }
-                }
-                
-                if (voiceId.isNullOrBlank()) {
-                    Log.e("ChatViewModel", "No voice ID configured - set a narrator voice in Chat Settings")
+
+                val request = resolveTtsRequest(characterId, currentSettings)
+                if (request == null) {
+                    failTtsGeneration(segmentId, "No TTS voice is configured")
                     return@launch
                 }
-                
-                val modelId = currentSettings.ttsModelId.takeIf { it.isNotBlank() }
-                    ?: ElevenLabsTTSModels.DEFAULT_MODEL_ID
                 
                 // Clean the text - remove any remaining markers
                 val cleanText = text
@@ -1268,43 +1229,32 @@ class ChatViewModel : ViewModel() {
                 
                 if (cleanText.isBlank()) {
                     Log.w("ChatViewModel", "Text is empty after cleaning")
+                    failTtsGeneration(segmentId, "There is no speakable text")
                     return@launch
                 }
                 
-                Log.d("ChatViewModel", "Generating TTS: voice=$voiceId, model=$modelId")
-                
-                // Generate a unique segment ID for tracking
-                val segmentId = "${System.currentTimeMillis()}_${text.hashCode()}"
-                
-                val isInworldModel = modelId == InworldTTSModels.INWORLD_TTS_1_5_MAX.modelId
-                val isInworldVoice = voiceId!!.startsWith("workspaces/") || voiceId!!.startsWith("voices/")
-                
-                val result = if (isInworldModel) {
-                    inworldService?.textToSpeech(cleanText, voiceId!!, modelId)
-                } else if (isInworldVoice) {
-                    inworldService?.textToSpeech(cleanText, voiceId!!, modelId)
-                } else {
-                    elevenLabsService?.textToSpeech(
-                        text = cleanText,
-                        voiceId = voiceId!!,
-                        modelId = modelId,
-                        language = language
-                    )
-                }
+                Log.d("ChatViewModel", "Generating TTS: provider=${request.provider}, voice=${request.voiceId}, model=${request.modelId}")
+                val result = synthesizeSpeech(cleanText, request)
                 
                 if (result == null) {
-                    Log.e("ChatViewModel", "ElevenLabsService is null!")
+                    failTtsGeneration(segmentId, "TTS service is unavailable")
                     return@launch
                 }
                 
                 result.onSuccess { audioData ->
                     Log.d("ChatViewModel", "TTS generation successful, playing audio (${audioData.size} bytes)")
+                    finishTtsGeneration(segmentId)
                     _ttsManager?.playFromBytes(audioData, segmentId)
                 }.onFailure { e ->
                     Log.e("ChatViewModel", "TTS generation failed: ${e.message}", e)
+                    failTtsGeneration(segmentId, ttsFailureMessage(e))
                 }
+            } catch (error: CancellationException) {
+                finishTtsGeneration(segmentId)
+                throw error
             } catch (e: Exception) {
                 Log.e("ChatViewModel", "Exception in speakText: ${e.message}", e)
+                failTtsGeneration(segmentId, ttsFailureMessage(e))
             }
         }
     }
@@ -1320,21 +1270,34 @@ class ChatViewModel : ViewModel() {
         segmentIndex: Int
     ) {
         Log.d("ChatViewModel", "speakTextWithCaching called: messageId=$messageId, segment=$segmentIndex")
-        
-        viewModelScope.launch {
+
+        val playId = "${messageId}_$segmentIndex"
+        ttsGenerationJob?.cancel()
+        ttsGenerationJob = viewModelScope.launch {
+            startTtsGeneration(playId)
             try {
                 val segment = SpeakableSegment(text, characterId)
-                val (audioData, segmentId) = generateAudioForSegment(
+                val generationResult = generateAudioForSegment(
                     segment = segment,
                     messageId = messageId,
                     segmentIndex = segmentIndex
                 )
-                
-                if (audioData != null) {
-                    _ttsManager?.playFromBytes(audioData, "${messageId}_$segmentIndex")
+
+                if (generationResult.audioData != null) {
+                    finishTtsGeneration(playId)
+                    _ttsManager?.playFromBytes(generationResult.audioData, playId)
+                } else {
+                    failTtsGeneration(
+                        playId,
+                        generationResult.errorMessage ?: "Unable to generate speech"
+                    )
                 }
+            } catch (error: CancellationException) {
+                finishTtsGeneration(playId)
+                throw error
             } catch (e: Exception) {
                 Log.e("ChatViewModel", "Exception in speakTextWithCaching: ${e.message}", e)
+                failTtsGeneration(playId, ttsFailureMessage(e))
             }
         }
     }
@@ -1346,6 +1309,9 @@ class ChatViewModel : ViewModel() {
         // Cancel any queued segments first
         ttsSegmentJob?.cancel()
         ttsSegmentJob = null
+        ttsGenerationJob?.cancel()
+        ttsGenerationJob = null
+        _ttsGenerationState.value = TtsGenerationState()
         _ttsManager?.stop()
     }
     
@@ -1371,7 +1337,7 @@ class ChatViewModel : ViewModel() {
     }
     
     // Job for sequential segment playback (can be cancelled)
-    private var ttsSegmentJob: kotlinx.coroutines.Job? = null
+    private var ttsSegmentJob: Job? = null
     
     /**
      * Data class for segment info to be spoken
@@ -1394,7 +1360,7 @@ class ChatViewModel : ViewModel() {
         ttsSegmentJob?.cancel()
         
         ttsSegmentJob = viewModelScope.launch {
-            var nextAudioDeferred: kotlinx.coroutines.Deferred<ByteArray?>? = null
+            var nextAudioDeferred: kotlinx.coroutines.Deferred<SegmentAudioResult>? = null
             var nextSegmentId: String? = null
             
             for (i in segments.indices) {
@@ -1403,23 +1369,30 @@ class ChatViewModel : ViewModel() {
                 val segment = segments[i]
                 
                 // Get audio for current segment (either pre-fetched or generate now)
-                val audioData: ByteArray?
-                val segmentId: String
+                val generationResult: SegmentAudioResult
+                val playId = "${messageId}_$i"
                 
                 if (nextAudioDeferred != null && nextSegmentId != null) {
                     // Use pre-fetched audio
-                    audioData = nextAudioDeferred.await()
-                    segmentId = nextSegmentId
+                    startTtsGeneration(playId)
+                    generationResult = nextAudioDeferred.await()
                     nextAudioDeferred = null
                     nextSegmentId = null
                 } else {
                     // Generate audio for first segment (with caching if messageId provided)
-                    val result = generateAudioForSegment(segment, messageId, i)
-                    audioData = result.first
-                    segmentId = result.second
+                    startTtsGeneration(playId)
+                    generationResult = generateAudioForSegment(segment, messageId, i)
                 }
                 
-                if (audioData == null) continue
+                val audioData = generationResult.audioData
+                if (audioData == null) {
+                    failTtsGeneration(
+                        playId,
+                        generationResult.errorMessage ?: "Unable to generate speech"
+                    )
+                    break
+                }
+                finishTtsGeneration(playId)
                 
                 // Start pre-fetching NEXT segment's audio while this one plays
                 if (i + 1 < segments.size && isActive) {
@@ -1427,7 +1400,7 @@ class ChatViewModel : ViewModel() {
                     val nextIndex = i + 1
                     nextSegmentId = "${messageId}_$nextIndex"
                     nextAudioDeferred = async {
-                        generateAudioForSegment(nextSegment, messageId, nextIndex).first
+                        generateAudioForSegment(nextSegment, messageId, nextIndex)
                     }
                 }
                 
@@ -1463,67 +1436,40 @@ class ChatViewModel : ViewModel() {
      * Generate audio for a segment and return the audio data and segment ID.
      * Optionally uploads to Cloudinary and caches the URL if messageId and segmentIndex are provided.
      */
+    private data class SegmentAudioResult(
+        val audioData: ByteArray?,
+        val segmentId: String,
+        val errorMessage: String? = null
+    )
+
     private suspend fun generateAudioForSegment(
         segment: SpeakableSegment,
         messageId: String? = null,
         segmentIndex: Int? = null
-    ): Pair<ByteArray?, String> {
+    ): SegmentAudioResult {
         try {
             val currentSettings = chatSettingsManager?.getCurrentSettings() 
-                ?: return Pair(null, "")
-            if (!currentSettings.ttsEnabled) return Pair(null, "")
-            
-            // Determine voice ID - character-specific or narrator
-            var voiceId: String? = null
-            var language: String? = null
-            
-            if (segment.characterId != null) {
-                val character = _characters.value.find { it.id == segment.characterId }
-                if (character != null && !character.voiceId.isNullOrBlank()) {
-                    voiceId = character.voiceId
-                    language = character.language
-                }
+                ?: return SegmentAudioResult(null, "", "TTS settings are unavailable")
+            if (!currentSettings.ttsEnabled) {
+                return SegmentAudioResult(null, "", "TTS is disabled")
             }
-            
-            // Fallback to narrator voice
-            if (voiceId.isNullOrBlank()) {
-                voiceId = currentSettings.narratorVoiceId
-            }
-            
-            if (voiceId.isNullOrBlank()) {
-                return Pair(null, "")
-            }
-            
-            val modelId = currentSettings.ttsModelId.takeIf { it.isNotBlank() }
-                ?: ElevenLabsTTSModels.DEFAULT_MODEL_ID
             
             // Clean the text
             val cleanText = segment.text
-                .replace(Regex("""\\[[^\\]]+\\]:\\s*"""), "")
-                .replace(Regex("""\\[ACTIONS\\].*""", RegexOption.DOT_MATCHES_ALL), "")
+                .replace(Regex("""\[[^\]]+\]:\s*"""), "")
+                .replace(Regex("""\[ACTIONS\].*""", RegexOption.DOT_MATCHES_ALL), "")
                 .trim()
             
-            if (cleanText.isBlank()) return Pair(null, "")
-            
-            val segmentId = "${System.currentTimeMillis()}_${segment.text.hashCode()}"
-            
-            val isInworldModel = modelId == InworldTTSModels.INWORLD_TTS_1_5_MAX.modelId
-            val isInworldVoice = voiceId!!.startsWith("workspaces/") || voiceId!!.startsWith("voices/")
-            
-            val result = if (isInworldModel) {
-                inworldService?.textToSpeech(cleanText, voiceId!!, modelId)
-            } else if (isInworldVoice) {
-                inworldService?.textToSpeech(cleanText, voiceId!!, modelId)
-            } else {
-                elevenLabsService?.textToSpeech(
-                    text = cleanText,
-                    voiceId = voiceId!!,
-                    modelId = modelId,
-                    language = language
-                )
+            if (cleanText.isBlank()) {
+                return SegmentAudioResult(null, "", "There is no speakable text")
             }
             
-            if (result == null) return Pair(null, segmentId)
+            val segmentId = "${System.currentTimeMillis()}_${segment.text.hashCode()}"
+
+            val request = resolveTtsRequest(segment.characterId, currentSettings)
+                ?: return SegmentAudioResult(null, segmentId, "No TTS voice is configured")
+            val result = synthesizeSpeech(cleanText, request)
+                ?: return SegmentAudioResult(null, segmentId, "TTS service is unavailable")
             
             return result.fold(
                 onSuccess = { audioData ->
@@ -1569,17 +1515,18 @@ class ChatViewModel : ViewModel() {
                             }
                         }
                     }
-                    Pair(audioData, segmentId)
+                    SegmentAudioResult(audioData, segmentId)
                 },
                 onFailure = { e ->
                     Log.e("ChatViewModel", "TTS generation failed: ${e.message}", e)
-                    Pair(null, segmentId)
+                    SegmentAudioResult(null, segmentId, ttsFailureMessage(e))
                 }
             )
-            
+        } catch (error: CancellationException) {
+            throw error
         } catch (e: Exception) {
             Log.e("ChatViewModel", "Exception generating audio: ${e.message}", e)
-            return Pair(null, "")
+            return SegmentAudioResult(null, "", ttsFailureMessage(e))
         }
     }
     
@@ -1630,10 +1577,10 @@ class ChatViewModel : ViewModel() {
      */
     private suspend fun speakTextAndWait(text: String, characterId: String? = null) {
         val segment = SpeakableSegment(text, characterId)
-        val (audioData, segmentId) = generateAudioForSegment(segment)
+        val generationResult = generateAudioForSegment(segment)
         
-        if (audioData != null) {
-            _ttsManager?.playFromBytes(audioData, segmentId)
+        if (generationResult.audioData != null) {
+            _ttsManager?.playFromBytes(generationResult.audioData, generationResult.segmentId)
             
             // Wait for playback to complete
             try {
@@ -1644,5 +1591,61 @@ class ChatViewModel : ViewModel() {
                 Log.w("ChatViewModel", "Error waiting for playback: ${e.message}")
             }
         }
+    }
+
+    private fun resolveTtsRequest(
+        characterId: String?,
+        settings: ChatSettings
+    ): ResolvedTtsRequest? {
+        return TtsRequestResolver.resolve(
+            characterId = characterId,
+            chatCharacters = _characters.value,
+            worldCharacters = _worldCharacters.value,
+            narratorVoiceId = settings.narratorVoiceId,
+            selectedModelId = settings.ttsModelId
+        )
+    }
+
+    private suspend fun synthesizeSpeech(
+        text: String,
+        request: ResolvedTtsRequest
+    ): Result<ByteArray>? {
+        return when (request.provider) {
+            TtsProvider.ELEVEN_LABS -> elevenLabsService?.textToSpeech(
+                text = text,
+                voiceId = request.voiceId,
+                modelId = request.modelId
+            )
+            TtsProvider.INWORLD -> inworldService?.textToSpeech(
+                text = text,
+                voiceId = request.voiceId,
+                modelId = request.modelId
+            )
+        }
+    }
+
+    private fun startTtsGeneration(segmentId: String) {
+        _ttsGenerationState.value = TtsGenerationState(
+            activeSegmentId = segmentId,
+            isGenerating = true
+        )
+    }
+
+    private fun finishTtsGeneration(segmentId: String) {
+        if (_ttsGenerationState.value.activeSegmentId == segmentId) {
+            _ttsGenerationState.value = TtsGenerationState()
+        }
+    }
+
+    private fun failTtsGeneration(segmentId: String, message: String) {
+        _ttsGenerationState.value = TtsGenerationState(
+            activeSegmentId = segmentId,
+            isGenerating = false,
+            errorMessage = message
+        )
+    }
+
+    private fun ttsFailureMessage(error: Throwable): String {
+        return "TTS failed: ${error.message?.take(300) ?: "Unknown error"}"
     }
 }

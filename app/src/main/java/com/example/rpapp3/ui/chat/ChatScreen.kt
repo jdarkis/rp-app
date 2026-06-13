@@ -193,6 +193,9 @@ fun ChatScreen(
     val currentChat by viewModel.currentChat.collectAsState()
     val characters by viewModel.characters.collectAsState()
     val worldCharacters by viewModel.worldCharacters.collectAsState()
+    val dialogueCharacters = remember(characters, worldCharacters) {
+        (characters + worldCharacters).distinctBy { it.id }
+    }
     val messages = viewModel.messages
     val isLoading = viewModel.isLoading
     
@@ -218,6 +221,7 @@ fun ChatScreen(
     val ttsManager = viewModel.ttsManager
     val playbackState = ttsManager?.playbackState?.collectAsState()
     val currentPlayingId = ttsManager?.currentPlayingId?.collectAsState()
+    val ttsGenerationState by viewModel.ttsGenerationState.collectAsState()
     
     // Track last spoken message ID for auto-TTS (saveable to persist across config changes)
     var lastSpokenMessageId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -251,6 +255,13 @@ fun ChatScreen(
                 // Animated scroll for new messages during conversation
                 listState.animateScrollToItem(messages.size - 1)
             }
+        }
+    }
+
+    LaunchedEffect(ttsGenerationState.errorMessage) {
+        ttsGenerationState.errorMessage?.let { message ->
+            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            viewModel.clearTtsError()
         }
     }
     
@@ -319,6 +330,9 @@ fun ChatScreen(
                 val speakableSegments = segments.map { segment ->
                     val character = if (segment.isCharacterDialogue && segment.characterName != null) {
                         characters.find { it.name.equals(segment.characterName, ignoreCase = true) }
+                            ?: worldCharacters.find {
+                                it.name.equals(segment.characterName, ignoreCase = true)
+                            }
                     } else null
                     
                     ChatViewModel.SpeakableSegment(
@@ -446,7 +460,7 @@ fun ChatScreen(
                     MessageBubble(
                         message = message,
                         character = characters.find { it.id == message.characterId },
-                        allCharacters = worldCharacters,
+                        allCharacters = dialogueCharacters,
                         filterMode = filterMode,
                         customDelimiters = customDelimiters,
                         paragraphCount = paragraphCount,
@@ -482,6 +496,8 @@ fun ChatScreen(
                         isPlayingTTS = playbackState?.value == TTSPlaybackState.PLAYING,
                         isLoadingTTS = playbackState?.value == TTSPlaybackState.LOADING,
                         currentPlayingSegmentId = currentPlayingId?.value,
+                        generatingSegmentId = ttsGenerationState.activeSegmentId
+                            .takeIf { ttsGenerationState.isGenerating },
                         cachedAudioUrls = viewModel.getCachedAudioUrlsForMessage(message.id),
                         onSpeak = { text, characterId, msgId, segmentIdx -> 
                             viewModel.speakTextWithCaching(text, characterId, msgId, segmentIdx)
@@ -504,7 +520,8 @@ fun ChatScreen(
             // Floating TTS Control Bar - shows when TTS is playing, loading, paused, or completed
             val isPlayingOrLoading = playbackState?.value == TTSPlaybackState.PLAYING || 
                                      playbackState?.value == TTSPlaybackState.LOADING ||
-                                     playbackState?.value == TTSPlaybackState.PAUSED
+                                     playbackState?.value == TTSPlaybackState.PAUSED ||
+                                     ttsGenerationState.isGenerating
             val isCompleted = playbackState?.value == TTSPlaybackState.COMPLETED
             val showTTSControls = isPlayingOrLoading || isCompleted
             
@@ -567,7 +584,8 @@ fun ChatScreen(
                             contentColor = MaterialTheme.colorScheme.onErrorContainer
                         )
                     ) {
-                        if (playbackState?.value == TTSPlaybackState.LOADING) {
+                        if (playbackState?.value == TTSPlaybackState.LOADING ||
+                            ttsGenerationState.isGenerating) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(18.dp),
                                 strokeWidth = 2.dp,
@@ -626,6 +644,7 @@ fun MessageBubble(
     isPlayingTTS: Boolean = false,
     isLoadingTTS: Boolean = false,
     currentPlayingSegmentId: String? = null,
+    generatingSegmentId: String? = null,
     cachedAudioUrls: Map<Int, String> = emptyMap(),
     onSpeak: ((text: String, characterId: String?, messageId: String, segmentIndex: Int) -> Unit)? = null,
     onPlayCached: ((audioUrl: String, segmentId: String) -> Unit)? = null,
@@ -856,7 +875,9 @@ fun MessageBubble(
                             if (!isUser && ttsEnabled && onStopSpeaking != null) {
                                 val segmentId = "${message.id}_$index"
                                 val isThisSegmentPlaying = currentPlayingSegmentId == segmentId && isPlayingTTS
-                                val isThisSegmentLoading = currentPlayingSegmentId == segmentId && isLoadingTTS
+                                val isThisSegmentLoading =
+                                    generatingSegmentId == segmentId ||
+                                        (currentPlayingSegmentId == segmentId && isLoadingTTS)
                                 val cachedAudioUrl = cachedAudioUrls[index]
                                 
                                 // Play button - show when cached audio exists

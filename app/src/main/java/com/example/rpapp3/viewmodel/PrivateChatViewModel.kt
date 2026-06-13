@@ -16,6 +16,8 @@ import com.example.rpapp3.data.ResponseLength
 import com.example.rpapp3.data.SafetyThreshold
 import com.example.rpapp3.data.TTSManager
 import com.example.rpapp3.data.TTSPlaybackState
+import com.example.rpapp3.data.TtsProvider
+import com.example.rpapp3.data.TtsRequestResolver
 import com.example.rpapp3.data.model.Character
 import com.example.rpapp3.data.model.Chat
 import com.example.rpapp3.data.model.ChatMessage
@@ -764,20 +766,48 @@ class PrivateChatViewModel : ViewModel() {
         
         viewModelScope.launch {
             try {
-                val voiceId = char.voiceId ?: currentSettings.narratorVoiceId
-                val modelId = currentSettings.ttsModelId
-                
-                val audioResult = if (voiceId.startsWith("workspaces/")) {
-                    inworldService?.textToSpeech(text, voiceId, modelId)
-                } else {
-                    elevenLabsService?.textToSpeech(text, voiceId, modelId)
+                currentSettings = chatSettingsManager?.getCurrentSettings() ?: ChatSettings()
+                val request = TtsRequestResolver.resolve(
+                    characterId = char.id,
+                    chatCharacters = listOf(char),
+                    worldCharacters = emptyList(),
+                    narratorVoiceId = currentSettings.narratorVoiceId,
+                    selectedModelId = currentSettings.ttsModelId
+                )
+
+                if (request == null) {
+                    _error.value = "No TTS voice is configured"
+                    return@launch
+                }
+
+                val audioResult = when (request.provider) {
+                    TtsProvider.ELEVEN_LABS -> elevenLabsService?.textToSpeech(
+                        text = text,
+                        voiceId = request.voiceId,
+                        modelId = request.modelId
+                    )
+                    TtsProvider.INWORLD -> inworldService?.textToSpeech(
+                        text = text,
+                        voiceId = request.voiceId,
+                        modelId = request.modelId
+                    )
                 }
                 
-                audioResult?.getOrNull()?.let { audioData ->
-                    _ttsManager?.playFromBytes(audioData, null)
+                if (audioResult == null) {
+                    _error.value = "TTS service is unavailable"
+                    return@launch
                 }
+
+                audioResult
+                    .onSuccess { audioData ->
+                        _ttsManager?.playFromBytes(audioData, null)
+                    }
+                    .onFailure { error ->
+                        _error.value = "TTS failed: ${error.message?.take(300) ?: "Unknown error"}"
+                    }
             } catch (e: Exception) {
                 Log.e("PrivateChatVM", "TTS error: ${e.message}")
+                _error.value = "TTS failed: ${e.message?.take(300) ?: "Unknown error"}"
             }
         }
     }

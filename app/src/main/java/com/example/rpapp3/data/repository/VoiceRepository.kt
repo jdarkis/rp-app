@@ -74,6 +74,14 @@ class VoiceRepository {
             Result.failure(e)
         }
     }
+
+    suspend fun setVoiceActive(voice: Voice, active: Boolean): Result<Unit> {
+        return if (active) {
+            addVoice(voice)
+        } else {
+            removeVoice(voice.voiceId)
+        }
+    }
     
     /**
      * Remove a voice from the user's custom voice list

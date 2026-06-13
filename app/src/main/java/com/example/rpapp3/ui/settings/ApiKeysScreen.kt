@@ -8,10 +8,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Help
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,7 +26,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.rpapp3.data.ApiKeyManager
+import com.example.rpapp3.data.GeminiApiKeyValidator
+import com.example.rpapp3.data.GeminiKeyStatus
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -31,6 +43,7 @@ fun ApiKeysScreen(
 ) {
     val context = LocalContext.current
     val apiKeyManager = remember { ApiKeyManager.getInstance(context) }
+    val apiKeyValidator = remember { GeminiApiKeyValidator() }
     val scope = rememberCoroutineScope()
     
     val apiKeys by apiKeyManager.apiKeys.collectAsState(initial = emptyList())
@@ -40,10 +53,56 @@ fun ApiKeysScreen(
     var newApiKey by remember { mutableStateOf("") }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var keyToDelete by remember { mutableStateOf<String?>(null) }
+    var keyStatuses by remember {
+        mutableStateOf<Map<String, GeminiKeyStatus>>(emptyMap())
+    }
+    var validationJob by remember { mutableStateOf<Job?>(null) }
+
+    fun validateKeys(keys: List<String>, forceRefresh: Boolean) {
+        validationJob?.cancel()
+
+        val keysToValidate = if (forceRefresh) {
+            keys
+        } else {
+            keys.filter {
+                keyStatuses[it] == null ||
+                    keyStatuses[it] == GeminiKeyStatus.Checking
+            }
+        }
+
+        keyStatuses = keyStatuses
+            .filterKeys { it in keys }
+            .toMutableMap()
+            .apply {
+                keysToValidate.forEach { put(it, GeminiKeyStatus.Checking) }
+            }
+
+        if (keysToValidate.isEmpty()) return
+
+        validationJob = scope.launch {
+            val semaphore = Semaphore(3)
+            coroutineScope {
+                keysToValidate.map { key ->
+                    async {
+                        val status = semaphore.withPermit {
+                            apiKeyValidator.validate(key)
+                        }
+                        if (key in apiKeys) {
+                            keyStatuses = keyStatuses + (key to status)
+                        }
+                    }
+                }.awaitAll()
+            }
+        }
+    }
     
     // Initialize defaults on first launch
     LaunchedEffect(Unit) {
         apiKeyManager.initializeDefaults()
+    }
+
+    LaunchedEffect(apiKeys) {
+        validateKeys(apiKeys, forceRefresh = false)
     }
     
     Scaffold(
@@ -57,6 +116,28 @@ fun ApiKeysScreen(
                             "Back",
                             tint = MaterialTheme.colorScheme.primary
                         )
+                    }
+                },
+                actions = {
+                    val isChecking = keyStatuses.values.any {
+                        it == GeminiKeyStatus.Checking
+                    }
+                    IconButton(
+                        onClick = { validateKeys(apiKeys, forceRefresh = true) },
+                        enabled = apiKeys.isNotEmpty() && !isChecking
+                    ) {
+                        if (isChecking) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(
+                                Icons.Default.Refresh,
+                                contentDescription = "Refresh key status",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -123,6 +204,7 @@ fun ApiKeysScreen(
                             ApiKeyItem(
                                 apiKey = key,
                                 isActive = index == currentIndex,
+                                status = keyStatuses[key],
                                 onSelect = {
                                     scope.launch {
                                         apiKeyManager.setActiveKeyIndex(index)
@@ -138,6 +220,14 @@ fun ApiKeysScreen(
                 }
                 
                 Spacer(modifier = Modifier.height(16.dp))
+
+                val activeCount = apiKeys.count {
+                    keyStatuses[it] == GeminiKeyStatus.Active
+                }
+                val invalidCount = apiKeys.count {
+                    keyStatuses[it] == GeminiKeyStatus.InvalidOrBlocked
+                }
+                val uncheckedCount = apiKeys.size - activeCount - invalidCount
                 
                 // Info card
                 Card(
@@ -147,20 +237,27 @@ fun ApiKeysScreen(
                     ),
                     border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    Column(
+                        modifier = Modifier.padding(16.dp)
                     ) {
-                        Icon(
-                            Icons.Default.Key,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.Key,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = "Total keys: ${apiKeys.size} | Selected: ${if (apiKeys.isNotEmpty()) currentIndex + 1 else 0}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Total keys: ${apiKeys.size} | Active: ${if (apiKeys.isNotEmpty()) currentIndex + 1 else 0}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface
+                            text = "Valid: $activeCount | Invalid or blocked: $invalidCount | Unchecked: $uncheckedCount",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -250,6 +347,7 @@ fun ApiKeysScreen(
 private fun ApiKeyItem(
     apiKey: String,
     isActive: Boolean,
+    status: GeminiKeyStatus?,
     onSelect: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -299,10 +397,12 @@ private fun ApiKeyItem(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = if (isActive) "Currently active" else "Tap to use this key",
+                    text = if (isActive) "Currently selected" else "Tap to select this key",
                     style = MaterialTheme.typography.bodySmall,
                     color = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                Spacer(modifier = Modifier.height(4.dp))
+                GeminiKeyStatusRow(status)
             }
             
             // Delete button
@@ -314,6 +414,67 @@ private fun ApiKeyItem(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun GeminiKeyStatusRow(status: GeminiKeyStatus?) {
+    val statusText: String
+    val statusColor: androidx.compose.ui.graphics.Color
+    val statusIcon: androidx.compose.ui.graphics.vector.ImageVector
+
+    when (status) {
+        GeminiKeyStatus.Checking -> {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(14.dp),
+                    strokeWidth = 1.5.dp
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Checking credential...",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            return
+        }
+        GeminiKeyStatus.Active -> {
+            statusText = "Credential active"
+            statusColor = MaterialTheme.colorScheme.primary
+            statusIcon = Icons.Default.CheckCircle
+        }
+        GeminiKeyStatus.InvalidOrBlocked -> {
+            statusText = "Invalid or blocked"
+            statusColor = MaterialTheme.colorScheme.error
+            statusIcon = Icons.Default.Error
+        }
+        GeminiKeyStatus.UnableToVerify -> {
+            statusText = "Unable to verify"
+            statusColor = MaterialTheme.colorScheme.tertiary
+            statusIcon = Icons.AutoMirrored.Filled.Help
+        }
+        null -> {
+            statusText = "Not checked"
+            statusColor = MaterialTheme.colorScheme.onSurfaceVariant
+            statusIcon = Icons.AutoMirrored.Filled.Help
+        }
+    }
+
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            imageVector = statusIcon,
+            contentDescription = null,
+            tint = statusColor,
+            modifier = Modifier.size(14.dp)
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = statusText,
+            style = MaterialTheme.typography.bodySmall,
+            color = statusColor,
+            fontWeight = FontWeight.Medium
+        )
     }
 }
 

@@ -31,7 +31,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.rpapp3.data.ChatSettingsManager
-import com.example.rpapp3.data.ElevenLabsService
 import com.example.rpapp3.data.TTSManager
 import com.example.rpapp3.data.TTSPlaybackState
 import com.example.rpapp3.data.MessageFilterMode
@@ -45,10 +44,11 @@ import com.example.rpapp3.ui.components.SUPPORTED_LANGUAGES
 import com.example.rpapp3.data.SummaryDetailLevel
 import com.example.rpapp3.data.repository.SummarizerPromptsRepository
 import com.example.rpapp3.data.repository.SummarizerPrompts
+import com.example.rpapp3.data.repository.VoiceRepository
 import com.example.rpapp3.data.InworldService
+import com.example.rpapp3.data.selectableElevenLabsVoices
 import com.example.rpapp3.data.model.InworldTTSModels
 import com.example.rpapp3.data.model.VoiceSource
-import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -110,18 +110,26 @@ fun ChatSettingsScreen(
     // AI Model Setting
     val aiModelId by chatSettingsManager.aiModelId.collectAsState(initial = ChatSettingsManager.DEFAULT_AI_MODEL_ID)
     
-    // ElevenLabs Service and Voices
-    val elevenLabsService = remember { ElevenLabsService.getInstance(context) }
+    // Saved ElevenLabs voices and the live Inworld catalog
+    val voiceRepository = remember { VoiceRepository() }
+    val savedElevenLabsVoicesFlow = remember(voiceRepository) {
+        voiceRepository.getCustomVoices()
+    }
+    val savedElevenLabsVoices by savedElevenLabsVoicesFlow
+        .collectAsState(initial = emptyList())
     val inworldService = remember { InworldService.getInstance(context) }
     val ttsManager = remember { TTSManager.getInstance(context) }
-    var voices by remember { mutableStateOf<List<Voice>>(emptyList()) }
+    var inworldVoices by remember { mutableStateOf<List<Voice>>(emptyList()) }
+    val voices = remember(savedElevenLabsVoices, inworldVoices) {
+        selectableElevenLabsVoices(savedElevenLabsVoices) +
+            inworldVoices.filter { it.source == VoiceSource.INWORLD }
+    }
     var voicesLoading by remember { mutableStateOf(false) }
     val playbackState by ttsManager.playbackState.collectAsState()
     val currentPlayingId by ttsManager.currentPlayingId.collectAsState()
     
     // Load voices when TTS section is opened
     LaunchedEffect(Unit) {
-        elevenLabsService.initialize()
         inworldService.initialize()
     }
     
@@ -617,20 +625,11 @@ fun ChatSettingsScreen(
                     onToggle = { 
                         ttsSectionExpanded = !ttsSectionExpanded
                         // Load voices when opening
-                        if (!ttsSectionExpanded.not() && voices.isEmpty()) {
+                        if (ttsSectionExpanded && inworldVoices.isEmpty()) {
                             voicesLoading = true
                             scope.launch {
-                                val elevenLabsDeferred = async { elevenLabsService.getVoices() }
-                                val inworldDeferred = async { inworldService.getVoices() }
-
-                                val elevenLabsResult = elevenLabsDeferred.await()
-                                val inworldResult = inworldDeferred.await()
-
-                                val allVoices = mutableListOf<Voice>()
-                                elevenLabsResult.onSuccess { allVoices.addAll(it) }
-                                inworldResult.onSuccess { allVoices.addAll(it) }
-                                
-                                voices = allVoices
+                                inworldService.getVoices()
+                                    .onSuccess { inworldVoices = it }
                                 voicesLoading = false
                             }
                         }

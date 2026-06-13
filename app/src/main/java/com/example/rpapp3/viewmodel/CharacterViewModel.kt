@@ -7,19 +7,21 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.rpapp3.data.ElevenLabsService
 import com.example.rpapp3.data.InworldService
 import com.example.rpapp3.data.TTSManager
+import com.example.rpapp3.data.selectableElevenLabsVoices
 import com.example.rpapp3.data.model.Character
 import com.example.rpapp3.data.model.VersionHistory
 import com.example.rpapp3.data.model.Voice
 import com.example.rpapp3.data.model.VoiceSource
 import com.example.rpapp3.data.repository.CharacterRepository
 import com.example.rpapp3.data.repository.MediaStorageService
+import com.example.rpapp3.data.repository.VoiceRepository
 import com.example.rpapp3.data.repository.VersionHistoryRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import android.util.Log
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
@@ -28,9 +30,9 @@ import kotlinx.coroutines.launch
 class CharacterViewModel : ViewModel() {
     private val characterRepository = CharacterRepository()
     private val mediaStorageService = MediaStorageService()
+    private val voiceRepository = VoiceRepository()
     private val versionHistoryRepository = VersionHistoryRepository()
     
-    private var elevenLabsService: ElevenLabsService? = null
     private var inworldService: InworldService? = null
     private val _ttsManager = MutableStateFlow<TTSManager?>(null)
     val ttsManager: StateFlow<TTSManager?> = _ttsManager
@@ -61,12 +63,10 @@ class CharacterViewModel : ViewModel() {
     val characterVersions: StateFlow<List<VersionHistory>> = _characterVersions
     
     fun initializeWithContext(context: Context) {
-        if (elevenLabsService == null) {
-            elevenLabsService = ElevenLabsService.getInstance(context)
+        if (inworldService == null) {
             inworldService = InworldService.getInstance(context)
             _ttsManager.value = TTSManager.getInstance(context)
             viewModelScope.launch {
-                elevenLabsService?.initialize()
                 inworldService?.initialize()
             }
         }
@@ -78,15 +78,19 @@ class CharacterViewModel : ViewModel() {
         viewModelScope.launch {
             _voicesLoading.value = true
             
-            // Load voices from both services concurrently
-            val elevenLabsDeferred = async { elevenLabsService?.getVoices() }
+            // Only voices explicitly saved in Settings are selectable for ElevenLabs.
+            val elevenLabsDeferred = async {
+                runCatching {
+                    selectableElevenLabsVoices(voiceRepository.getCustomVoices().first())
+                }
+            }
             val inworldDeferred = async { inworldService?.getVoices() }
             
             val allVoices = mutableListOf<Voice>()
             
-            elevenLabsDeferred.await()?.onSuccess { voiceList ->
+            elevenLabsDeferred.await().onSuccess { voiceList ->
                 allVoices.addAll(voiceList)
-            }?.onFailure { e ->
+            }.onFailure { e ->
                 Log.e("CharacterViewModel", "Failed to load ElevenLabs voices: ${e.message}")
             }
             
