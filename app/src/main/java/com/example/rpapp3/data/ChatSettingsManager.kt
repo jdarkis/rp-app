@@ -33,6 +33,23 @@ enum class ResponseLength {
     VERY_LONG    // No limit, elaborate responses
 }
 
+enum class AiProvider {
+    GEMINI,
+    BEDROCK
+}
+
+enum class BedrockSamplingMode {
+    TEMPERATURE,
+    TOP_P
+}
+
+data class AiModelOption(
+    val modelId: String,
+    val displayName: String,
+    val provider: AiProvider,
+    val providerLabel: String
+)
+
 class ChatSettingsManager private constructor(private val context: Context) {
 
     companion object {
@@ -55,6 +72,14 @@ class ChatSettingsManager private constructor(private val context: Context) {
         const val DEFAULT_MAX_OUTPUT_TOKENS = 16384
         const val DEFAULT_PRESENCE_PENALTY = 0f
         const val DEFAULT_FREQUENCY_PENALTY = 0f
+
+        // Claude Opus 4.6 defaults
+        val DEFAULT_BEDROCK_SAMPLING_MODE = BedrockSamplingMode.TEMPERATURE
+        const val DEFAULT_BEDROCK_TEMPERATURE = 1.0f
+        const val DEFAULT_BEDROCK_TOP_P = 0.999f
+        const val DEFAULT_BEDROCK_TOP_K = 64
+        const val DEFAULT_BEDROCK_TOP_K_ENABLED = false
+        const val DEFAULT_BEDROCK_MAX_OUTPUT_TOKENS = 16384
         
         // TTS Defaults
         const val DEFAULT_TTS_MODEL_ID = "eleven_v3"
@@ -62,15 +87,55 @@ class ChatSettingsManager private constructor(private val context: Context) {
         
         // AI Model Default
         const val DEFAULT_AI_MODEL_ID = "gemini-3-flash-preview"
+        const val DEFAULT_BEDROCK_MODEL_ID = "us.anthropic.claude-opus-4-6-v1"
         
         // Available AI Models
         val AVAILABLE_AI_MODELS = listOf(
-            "gemini-3-flash-preview" to "Gemini 3 Flash Preview",
-            "gemini-3-pro-preview" to "Gemini 3 Pro Preview",
-            "gemini-2.5-flash" to "Gemini 2.5 Flash",
-            "gemini-2.5-flash-lite" to "Gemini 2.5 Flash Lite",
-            "gemini-2.5-pro" to "Gemini 2.5 Pro"
+            AiModelOption(
+                modelId = "gemini-3-flash-preview",
+                displayName = "Gemini 3 Flash Preview",
+                provider = AiProvider.GEMINI,
+                providerLabel = "Gemini"
+            ),
+            AiModelOption(
+                modelId = "gemini-3-pro-preview",
+                displayName = "Gemini 3 Pro Preview",
+                provider = AiProvider.GEMINI,
+                providerLabel = "Gemini"
+            ),
+            AiModelOption(
+                modelId = "gemini-2.5-flash",
+                displayName = "Gemini 2.5 Flash",
+                provider = AiProvider.GEMINI,
+                providerLabel = "Gemini"
+            ),
+            AiModelOption(
+                modelId = "gemini-2.5-flash-lite",
+                displayName = "Gemini 2.5 Flash Lite",
+                provider = AiProvider.GEMINI,
+                providerLabel = "Gemini"
+            ),
+            AiModelOption(
+                modelId = "gemini-2.5-pro",
+                displayName = "Gemini 2.5 Pro",
+                provider = AiProvider.GEMINI,
+                providerLabel = "Gemini"
+            ),
+            AiModelOption(
+                modelId = DEFAULT_BEDROCK_MODEL_ID,
+                displayName = "Claude Opus 4.6",
+                provider = AiProvider.BEDROCK,
+                providerLabel = "Bedrock"
+            )
         )
+
+        fun aiModelOptionFor(modelId: String): AiModelOption? {
+            return AVAILABLE_AI_MODELS.firstOrNull { it.modelId == modelId }
+        }
+
+        fun aiProviderFor(modelId: String): AiProvider {
+            return aiModelOptionFor(modelId)?.provider ?: AiProvider.GEMINI
+        }
         
         // Default Prompts for Private Chat
         const val DEFAULT_CONVERSATION_STYLE_PROMPT = """You are {CHARACTER_NAME}. Your output must always follow this structure: first, you may write your internal thoughts or narrate your inner state for your own reference. However, the final message you send to the user must be enclosed in square brackets and quotation marks (e.g., ["..."]).
@@ -118,6 +183,12 @@ Output Format Example: Internal Thought: I'm feeling a bit annoyed that they're 
     private val PRESENCE_PENALTY_KEY = floatPreferencesKey("presence_penalty")
     private val FREQUENCY_PENALTY_KEY = floatPreferencesKey("frequency_penalty")
     private val THINKING_ENABLED_KEY = booleanPreferencesKey("thinking_enabled")
+    private val BEDROCK_SAMPLING_MODE_KEY = stringPreferencesKey("bedrock_sampling_mode")
+    private val BEDROCK_TEMPERATURE_KEY = floatPreferencesKey("bedrock_temperature")
+    private val BEDROCK_TOP_P_KEY = floatPreferencesKey("bedrock_top_p")
+    private val BEDROCK_TOP_K_KEY = intPreferencesKey("bedrock_top_k")
+    private val BEDROCK_TOP_K_ENABLED_KEY = booleanPreferencesKey("bedrock_top_k_enabled")
+    private val BEDROCK_MAX_OUTPUT_TOKENS_KEY = intPreferencesKey("bedrock_max_output_tokens")
     private val SAFETY_HARASSMENT_KEY = stringPreferencesKey("safety_harassment")
     private val SAFETY_HATE_SPEECH_KEY = stringPreferencesKey("safety_hate_speech")
     private val SAFETY_SEXUALLY_EXPLICIT_KEY = stringPreferencesKey("safety_sexually_explicit")
@@ -135,7 +206,7 @@ Output Format Example: Internal Thought: I'm feeling a bit annoyed that they're 
     
     // Unlock Prompt Setting
     private val UNLOCK_PROMPT_ENABLED_KEY = booleanPreferencesKey("unlock_prompt_enabled")
-    
+
     // Narrator Language Setting
     private val NARRATOR_LANGUAGE_KEY = stringPreferencesKey("narrator_language")
     
@@ -241,6 +312,42 @@ Output Format Example: Internal Thought: I'm feeling a bit annoyed that they're 
     val thinkingEnabled: Flow<Boolean> = context.chatSettingsDataStore.data
         .map { preferences ->
             preferences[THINKING_ENABLED_KEY] ?: false
+        }
+
+    val bedrockSamplingMode: Flow<BedrockSamplingMode> = context.chatSettingsDataStore.data
+        .map { preferences ->
+            preferences[BEDROCK_SAMPLING_MODE_KEY]
+                ?.let { stored -> runCatching { BedrockSamplingMode.valueOf(stored) }.getOrNull() }
+                ?: DEFAULT_BEDROCK_SAMPLING_MODE
+        }
+
+    val bedrockTemperature: Flow<Float> = context.chatSettingsDataStore.data
+        .map { preferences ->
+            (preferences[BEDROCK_TEMPERATURE_KEY] ?: DEFAULT_BEDROCK_TEMPERATURE)
+                .coerceIn(0f, 1f)
+        }
+
+    val bedrockTopP: Flow<Float> = context.chatSettingsDataStore.data
+        .map { preferences ->
+            (preferences[BEDROCK_TOP_P_KEY] ?: DEFAULT_BEDROCK_TOP_P)
+                .coerceIn(0f, 1f)
+        }
+
+    val bedrockTopK: Flow<Int> = context.chatSettingsDataStore.data
+        .map { preferences ->
+            (preferences[BEDROCK_TOP_K_KEY] ?: DEFAULT_BEDROCK_TOP_K)
+                .coerceIn(0, 500)
+        }
+
+    val bedrockTopKEnabled: Flow<Boolean> = context.chatSettingsDataStore.data
+        .map { preferences ->
+            preferences[BEDROCK_TOP_K_ENABLED_KEY] ?: DEFAULT_BEDROCK_TOP_K_ENABLED
+        }
+
+    val bedrockMaxOutputTokens: Flow<Int> = context.chatSettingsDataStore.data
+        .map { preferences ->
+            (preferences[BEDROCK_MAX_OUTPUT_TOKENS_KEY] ?: DEFAULT_BEDROCK_MAX_OUTPUT_TOKENS)
+                .coerceIn(1, 128_000)
         }
 
     // Safety Settings
@@ -487,6 +594,42 @@ Output Format Example: Internal Thought: I'm feeling a bit annoyed that they're 
         }
     }
 
+    suspend fun setBedrockSamplingMode(mode: BedrockSamplingMode) {
+        context.chatSettingsDataStore.edit { preferences ->
+            preferences[BEDROCK_SAMPLING_MODE_KEY] = mode.name
+        }
+    }
+
+    suspend fun setBedrockTemperature(value: Float) {
+        context.chatSettingsDataStore.edit { preferences ->
+            preferences[BEDROCK_TEMPERATURE_KEY] = value.coerceIn(0f, 1f)
+        }
+    }
+
+    suspend fun setBedrockTopP(value: Float) {
+        context.chatSettingsDataStore.edit { preferences ->
+            preferences[BEDROCK_TOP_P_KEY] = value.coerceIn(0f, 1f)
+        }
+    }
+
+    suspend fun setBedrockTopK(value: Int) {
+        context.chatSettingsDataStore.edit { preferences ->
+            preferences[BEDROCK_TOP_K_KEY] = value.coerceIn(0, 500)
+        }
+    }
+
+    suspend fun setBedrockTopKEnabled(enabled: Boolean) {
+        context.chatSettingsDataStore.edit { preferences ->
+            preferences[BEDROCK_TOP_K_ENABLED_KEY] = enabled
+        }
+    }
+
+    suspend fun setBedrockMaxOutputTokens(value: Int) {
+        context.chatSettingsDataStore.edit { preferences ->
+            preferences[BEDROCK_MAX_OUTPUT_TOKENS_KEY] = value.coerceIn(1, 128_000)
+        }
+    }
+
     // Setters for Safety Settings
     suspend fun setSafetyHarassment(threshold: SafetyThreshold) {
         context.chatSettingsDataStore.edit { preferences ->
@@ -659,6 +802,12 @@ Output Format Example: Internal Thought: I'm feeling a bit annoyed that they're 
             preferences[PRESENCE_PENALTY_KEY] = DEFAULT_PRESENCE_PENALTY
             preferences[FREQUENCY_PENALTY_KEY] = DEFAULT_FREQUENCY_PENALTY
             preferences[THINKING_ENABLED_KEY] = false
+            preferences[BEDROCK_SAMPLING_MODE_KEY] = DEFAULT_BEDROCK_SAMPLING_MODE.name
+            preferences[BEDROCK_TEMPERATURE_KEY] = DEFAULT_BEDROCK_TEMPERATURE
+            preferences[BEDROCK_TOP_P_KEY] = DEFAULT_BEDROCK_TOP_P
+            preferences[BEDROCK_TOP_K_KEY] = DEFAULT_BEDROCK_TOP_K
+            preferences[BEDROCK_TOP_K_ENABLED_KEY] = DEFAULT_BEDROCK_TOP_K_ENABLED
+            preferences[BEDROCK_MAX_OUTPUT_TOKENS_KEY] = DEFAULT_BEDROCK_MAX_OUTPUT_TOKENS
             preferences[SAFETY_HARASSMENT_KEY] = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE.name
             preferences[SAFETY_HATE_SPEECH_KEY] = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE.name
             preferences[SAFETY_SEXUALLY_EXPLICIT_KEY] = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE.name
@@ -683,7 +832,9 @@ Output Format Example: Internal Thought: I'm feeling a bit annoyed that they're 
 
     // Utility to get all settings at once (for ViewModel initialization)
     suspend fun getCurrentSettings(): ChatSettings {
-        return ChatSettings(
+        val selectedModelId = aiModelId.first()
+        val isBedrock = aiProviderFor(selectedModelId) == AiProvider.BEDROCK
+        val geminiSettings = ChatSettings(
             filterMode = filterMode.first(),
             customDelimiter = customDelimiter.first(),
             paragraphCount = paragraphCount.first(),
@@ -695,6 +846,8 @@ Output Format Example: Internal Thought: I'm feeling a bit annoyed that they're 
             presencePenalty = presencePenalty.first(),
             frequencyPenalty = frequencyPenalty.first(),
             thinkingEnabled = thinkingEnabled.first(),
+            bedrockSamplingMode = bedrockSamplingMode.first(),
+            bedrockTopKEnabled = bedrockTopKEnabled.first(),
             safetyHarassment = safetyHarassment.first(),
             safetyHateSpeech = safetyHateSpeech.first(),
             safetySexuallyExplicit = safetySexuallyExplicit.first(),
@@ -710,8 +863,24 @@ Output Format Example: Internal Thought: I'm feeling a bit annoyed that they're 
             ttsModelId = ttsModelId.first(),
             unlockPromptEnabled = unlockPromptEnabled.first(),
             narratorLanguage = narratorLanguage.first(),
-            aiModelId = aiModelId.first()
+            aiModelId = selectedModelId
         )
+
+        return if (isBedrock) {
+            applyBedrockGenerationProfile(
+                settings = geminiSettings,
+                profile = BedrockGenerationProfile(
+                    samplingMode = bedrockSamplingMode.first(),
+                    temperature = bedrockTemperature.first(),
+                    topP = bedrockTopP.first(),
+                    topK = bedrockTopK.first(),
+                    topKEnabled = bedrockTopKEnabled.first(),
+                    maxOutputTokens = bedrockMaxOutputTokens.first()
+                )
+            )
+        } else {
+            geminiSettings
+        }
     }
 
     /**
@@ -751,6 +920,8 @@ data class ChatSettings(
     val presencePenalty: Float = ChatSettingsManager.DEFAULT_PRESENCE_PENALTY,
     val frequencyPenalty: Float = ChatSettingsManager.DEFAULT_FREQUENCY_PENALTY,
     val thinkingEnabled: Boolean = false,
+    val bedrockSamplingMode: BedrockSamplingMode = ChatSettingsManager.DEFAULT_BEDROCK_SAMPLING_MODE,
+    val bedrockTopKEnabled: Boolean = ChatSettingsManager.DEFAULT_BEDROCK_TOP_K_ENABLED,
     val safetyHarassment: SafetyThreshold = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE,
     val safetyHateSpeech: SafetyThreshold = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE,
     val safetySexuallyExplicit: SafetyThreshold = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE,
@@ -771,6 +942,31 @@ data class ChatSettings(
     // AI Model
     val aiModelId: String = ChatSettingsManager.DEFAULT_AI_MODEL_ID
 )
+
+internal data class BedrockGenerationProfile(
+    val samplingMode: BedrockSamplingMode = ChatSettingsManager.DEFAULT_BEDROCK_SAMPLING_MODE,
+    val temperature: Float = ChatSettingsManager.DEFAULT_BEDROCK_TEMPERATURE,
+    val topP: Float = ChatSettingsManager.DEFAULT_BEDROCK_TOP_P,
+    val topK: Int = ChatSettingsManager.DEFAULT_BEDROCK_TOP_K,
+    val topKEnabled: Boolean = ChatSettingsManager.DEFAULT_BEDROCK_TOP_K_ENABLED,
+    val maxOutputTokens: Int = ChatSettingsManager.DEFAULT_BEDROCK_MAX_OUTPUT_TOKENS
+)
+
+internal fun applyBedrockGenerationProfile(
+    settings: ChatSettings,
+    profile: BedrockGenerationProfile
+): ChatSettings {
+    return settings.copy(
+        streamingEnabled = false,
+        temperature = profile.temperature.coerceIn(0f, 1f),
+        topP = profile.topP.coerceIn(0f, 1f),
+        topK = profile.topK.coerceIn(0, 500),
+        maxOutputTokens = profile.maxOutputTokens.coerceIn(1, 128_000),
+        thinkingEnabled = false,
+        bedrockSamplingMode = profile.samplingMode,
+        bedrockTopKEnabled = profile.topKEnabled
+    )
+}
 
 /**
  * Settings specifically for private chats (separate from normal chat settings)

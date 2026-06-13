@@ -7,6 +7,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.rpapp3.data.ApiKeyManager
+import com.example.rpapp3.data.AiProvider
+import com.example.rpapp3.data.BedrockApiKeyManager
+import com.example.rpapp3.data.BedrockConverseRequest
+import com.example.rpapp3.data.BedrockGenerationException
+import com.example.rpapp3.data.BedrockService
+import com.example.rpapp3.data.buildBedrockMessages
 import com.example.rpapp3.data.ChatSettings
 import com.example.rpapp3.data.ChatSettingsManager
 import com.example.rpapp3.data.ElevenLabsService
@@ -56,15 +62,19 @@ class PrivateChatViewModel : ViewModel() {
     private val settingsRepository = SettingsRepository()
     
     private var apiKeyManager: ApiKeyManager? = null
+    private var bedrockApiKeyManager: BedrockApiKeyManager? = null
     private var chatSettingsManager: ChatSettingsManager? = null
     private var elevenLabsService: ElevenLabsService? = null
     private var inworldService: InworldService? = null
     private var _ttsManager: TTSManager? = null
+    private var bedrockService: BedrockService? = null
     private var appContext: Context? = null
     
     private var currentApiKey: String? = null
     private var currentSettings: ChatSettings = ChatSettings()
     private var privateChatSettings: PrivateChatSettings = PrivateChatSettings()
+    private var currentAiProvider: AiProvider = AiProvider.GEMINI
+    private var bedrockReady: Boolean = false
     
     // State
     private val _currentChat = MutableStateFlow<Chat?>(null)
@@ -117,10 +127,12 @@ class PrivateChatViewModel : ViewModel() {
         if (apiKeyManager == null) {
             appContext = context.applicationContext
             apiKeyManager = ApiKeyManager.getInstance(context)
+            bedrockApiKeyManager = BedrockApiKeyManager.getInstance(context)
             chatSettingsManager = ChatSettingsManager.getInstance(context)
             elevenLabsService = ElevenLabsService.getInstance(context)
             inworldService = InworldService.getInstance(context)
             _ttsManager = TTSManager.getInstance(context)
+            bedrockService = BedrockService()
             viewModelScope.launch {
                 apiKeyManager?.initializeDefaults()
                 apiKeyManager?.resetKeyIndex()
@@ -253,12 +265,12 @@ class PrivateChatViewModel : ViewModel() {
         }
     }
     
-    private suspend fun initializeAI() {
+    private suspend fun initializeAI(excludedMessageId: String? = null) {
         val char = _character.value
-        val apiKey = currentApiKey
         
         currentSettings = chatSettingsManager?.getCurrentSettings() ?: ChatSettings()
         privateChatSettings = chatSettingsManager?.getPrivateChatSettings() ?: PrivateChatSettings()
+        currentAiProvider = ChatSettingsManager.aiProviderFor(currentSettings.aiModelId)
         
         // Update display filter settings for UI
         _displayFilterSettings.value = DisplayFilterSettings(
@@ -266,11 +278,6 @@ class PrivateChatViewModel : ViewModel() {
             openBracket = privateChatSettings.displayFilterOpenBracket,
             closeBracket = privateChatSettings.displayFilterCloseBracket
         )
-        
-        if (apiKey.isNullOrBlank()) {
-            _error.value = "No API key configured. Please add one in Settings."
-            return
-        }
         
         if (char == null) {
             _error.value = "Character not found"
@@ -289,6 +296,26 @@ class PrivateChatViewModel : ViewModel() {
         
         val systemInstructions = baseSystemInstructions + extraInstructions
         _systemPrompt.value = systemInstructions
+
+        if (currentAiProvider == AiProvider.BEDROCK) {
+            generativeModel = null
+            chatSession = null
+            val bedrockApiKey = bedrockApiKeyManager?.getApiKey()
+            bedrockReady = !bedrockApiKey.isNullOrBlank()
+            if (!bedrockReady) {
+                _error.value = "No Bedrock API key configured. Please add one in Settings."
+            }
+            return
+        }
+
+        bedrockReady = false
+        val apiKey = currentApiKey ?: apiKeyManager?.getCurrentApiKey()
+
+        if (apiKey.isNullOrBlank()) {
+            _error.value = "No API key configured. Please add one in Settings."
+            return
+        }
+        currentApiKey = apiKey
         
         val safetySettings = buildSafetySettings()
         
@@ -306,7 +333,7 @@ class PrivateChatViewModel : ViewModel() {
         )
         
         // Start chat with FULL message history (not paginated UI messages)
-        val history = _fullMessageHistory.map { message ->
+        val history = modelHistory(excludedMessageId).map { message ->
             content(role = if (message.isUser) "user" else "model") {
                 text(message.text)
             }
@@ -441,8 +468,20 @@ class PrivateChatViewModel : ViewModel() {
      */
     private fun buildSafetySettings(): List<SafetySetting> = 
         SafetySettingsBuilder.build(currentSettings)
-    
-    
+
+    private fun isAiReady(): Boolean {
+        return when (currentAiProvider) {
+            AiProvider.GEMINI -> chatSession != null
+            AiProvider.BEDROCK -> bedrockReady
+        }
+    }
+
+    private fun modelHistory(excludedMessageId: String? = null): List<ChatMessage> {
+        return _fullMessageHistory.filter { message ->
+            excludedMessageId == null || message.id != excludedMessageId
+        }
+    }
+
     fun sendMessage(userMessage: String) {
         if (userMessage.isBlank() || _isLoading.value) return
         
@@ -463,21 +502,29 @@ class PrivateChatViewModel : ViewModel() {
         
         viewModelScope.launch {
             chatRepository.addMessage(userChatMessage)
-            sendMessageWithRetry(userMessage, chatId, char)
+            sendMessageWithRetry(userChatMessage, chatId, char)
         }
     }
     
     private suspend fun sendMessageWithRetry(
-        userMessage: String,
+        userChatMessage: ChatMessage,
         chatId: String,
         character: Character,
         keyAttemptNumber: Int = 0,
         rateLimitRetries: Int = 0
     ) {
-        val totalKeys = apiKeyManager?.apiKeys?.first()?.size ?: 0
+        val userMessage = userChatMessage.text
+        currentSettings = chatSettingsManager?.getCurrentSettings() ?: ChatSettings()
+        currentAiProvider = ChatSettingsManager.aiProviderFor(currentSettings.aiModelId)
+
+        val totalKeys = if (currentAiProvider == AiProvider.GEMINI) {
+            apiKeyManager?.apiKeys?.first()?.size ?: 0
+        } else {
+            1
+        }
         val maxRateLimitRetries = 3
         
-        if (keyAttemptNumber >= totalKeys && totalKeys > 0) {
+        if (currentAiProvider == AiProvider.GEMINI && keyAttemptNumber >= totalKeys && totalKeys > 0) {
             _error.value = "All API keys have exceeded their quota."
             
             val errorChatMessage = ChatMessage(
@@ -494,16 +541,19 @@ class PrivateChatViewModel : ViewModel() {
         }
         
         try {
-            if (chatSession == null) {
-                initializeAI()
-            }
-            
-            if (chatSession == null) {
-                _error.value = "Failed to initialize AI. Check your API key."
+            initializeAI(excludedMessageId = userChatMessage.id)
+
+            if (!isAiReady()) {
+                val setupError = if (currentAiProvider == AiProvider.BEDROCK) {
+                    "Failed to initialize Bedrock. Check your Bedrock API key in Settings."
+                } else {
+                    "Failed to initialize AI. Check your API key in Settings."
+                }
+                _error.value = setupError
                 
                 val errorChatMessage = ChatMessage(
                     chatId = chatId,
-                    text = "Error: Failed to initialize AI. Check your API key in Settings.",
+                    text = "Error: $setupError",
                     isUser = false,
                     characterId = character.id,
                     characterName = character.name
@@ -513,15 +563,51 @@ class PrivateChatViewModel : ViewModel() {
                 _isLoading.value = false
                 return
             }
-            
-            // Refresh chat session with FULL message history
-            if (generativeModel != null) {
-                val history = _fullMessageHistory.map { message ->
-                    content(role = if (message.isUser) "user" else "model") {
-                        text(message.text)
-                    }
+
+            if (currentAiProvider == AiProvider.BEDROCK) {
+                val apiKey = bedrockApiKeyManager?.getApiKey()
+                if (apiKey.isNullOrBlank()) {
+                    throw BedrockGenerationException("No Bedrock API key configured. Please add one in Settings.")
                 }
-                chatSession = generativeModel?.startChat(history = history)
+                val responseText = bedrockService?.converseWithRetry(
+                    apiKey = apiKey,
+                    request = BedrockConverseRequest(
+                        modelId = currentSettings.aiModelId,
+                        systemPrompt = _systemPrompt.value.orEmpty(),
+                        messages = buildBedrockMessages(_fullMessageHistory, userChatMessage),
+                        settings = currentSettings
+                    )
+                )?.text
+
+                if (responseText.isNullOrBlank()) {
+                    _error.value = "AI returned an empty response."
+
+                    val errorChatMessage = ChatMessage(
+                        chatId = chatId,
+                        text = "Error: AI returned an empty response. Please try again.",
+                        isUser = false,
+                        characterId = character.id,
+                        characterName = character.name
+                    )
+                    _messages.add(errorChatMessage)
+
+                    _isLoading.value = false
+                    return
+                }
+
+                val aiMessage = ChatMessage(
+                    chatId = chatId,
+                    text = responseText.trim(),
+                    isUser = false,
+                    characterId = character.id,
+                    characterName = character.name
+                )
+                _messages.add(aiMessage)
+                _fullMessageHistory.add(aiMessage)
+                chatRepository.addMessage(aiMessage)
+
+                _isLoading.value = false
+                return
             }
             
             if (currentSettings.streamingEnabled) {
@@ -628,12 +714,29 @@ class PrivateChatViewModel : ViewModel() {
                 }
             }
 
+            if (currentAiProvider == AiProvider.BEDROCK) {
+                val bedrockErrorMessage = BedrockService.userFacingErrorMessage(e)
+                _error.value = bedrockErrorMessage
+
+                val errorChatMessage = ChatMessage(
+                    chatId = chatId,
+                    text = "Error: $bedrockErrorMessage",
+                    isUser = false,
+                    characterId = character.id,
+                    characterName = character.name
+                )
+                _messages.add(errorChatMessage)
+
+                _isLoading.value = false
+                return
+            }
+
             
             if (apiKeyManager?.isRateLimitError(errorMessage) == true) {
                 if (rateLimitRetries < maxRateLimitRetries) {
                     val delayMs = 2000L * (1 shl rateLimitRetries)
                     delay(delayMs)
-                    sendMessageWithRetry(userMessage, chatId, character, keyAttemptNumber, rateLimitRetries + 1)
+                    sendMessageWithRetry(userChatMessage, chatId, character, keyAttemptNumber, rateLimitRetries + 1)
                     return
                 }
             }
@@ -644,9 +747,9 @@ class PrivateChatViewModel : ViewModel() {
                     currentApiKey = newKey
                     chatSession = null
                     generativeModel = null
-                    initializeAI()
+                    initializeAI(excludedMessageId = userChatMessage.id)
                     delay(500L)
-                    sendMessageWithRetry(userMessage, chatId, character, keyAttemptNumber + 1, 0)
+                    sendMessageWithRetry(userChatMessage, chatId, character, keyAttemptNumber + 1, 0)
                     return
                 } else {
                     _error.value = "All API keys have exceeded their quota."

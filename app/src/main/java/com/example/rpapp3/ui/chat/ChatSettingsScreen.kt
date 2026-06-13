@@ -30,6 +30,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.rpapp3.data.AiProvider
+import com.example.rpapp3.data.BedrockSamplingMode
 import com.example.rpapp3.data.ChatSettingsManager
 import com.example.rpapp3.data.TTSManager
 import com.example.rpapp3.data.TTSPlaybackState
@@ -86,6 +88,24 @@ fun ChatSettingsScreen(
     val presencePenalty by chatSettingsManager.presencePenalty.collectAsState(initial = ChatSettingsManager.DEFAULT_PRESENCE_PENALTY)
     val frequencyPenalty by chatSettingsManager.frequencyPenalty.collectAsState(initial = ChatSettingsManager.DEFAULT_FREQUENCY_PENALTY)
     val thinkingEnabled by chatSettingsManager.thinkingEnabled.collectAsState(initial = false)
+    val bedrockSamplingMode by chatSettingsManager.bedrockSamplingMode.collectAsState(
+        initial = ChatSettingsManager.DEFAULT_BEDROCK_SAMPLING_MODE
+    )
+    val bedrockTemperature by chatSettingsManager.bedrockTemperature.collectAsState(
+        initial = ChatSettingsManager.DEFAULT_BEDROCK_TEMPERATURE
+    )
+    val bedrockTopP by chatSettingsManager.bedrockTopP.collectAsState(
+        initial = ChatSettingsManager.DEFAULT_BEDROCK_TOP_P
+    )
+    val bedrockTopK by chatSettingsManager.bedrockTopK.collectAsState(
+        initial = ChatSettingsManager.DEFAULT_BEDROCK_TOP_K
+    )
+    val bedrockTopKEnabled by chatSettingsManager.bedrockTopKEnabled.collectAsState(
+        initial = ChatSettingsManager.DEFAULT_BEDROCK_TOP_K_ENABLED
+    )
+    val bedrockMaxOutputTokens by chatSettingsManager.bedrockMaxOutputTokens.collectAsState(
+        initial = ChatSettingsManager.DEFAULT_BEDROCK_MAX_OUTPUT_TOKENS
+    )
     val safetyHarassment by chatSettingsManager.safetyHarassment.collectAsState(initial = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE)
     val safetyHateSpeech by chatSettingsManager.safetyHateSpeech.collectAsState(initial = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE)
     val safetySexuallyExplicit by chatSettingsManager.safetySexuallyExplicit.collectAsState(initial = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE)
@@ -103,12 +123,13 @@ fun ChatSettingsScreen(
     
     // Unlock Prompt Setting
     val unlockPromptEnabled by chatSettingsManager.unlockPromptEnabled.collectAsState(initial = false)
-    
+
     // Narrator Language Setting
     val narratorLanguage by chatSettingsManager.narratorLanguage.collectAsState(initial = "en")
     
     // AI Model Setting
     val aiModelId by chatSettingsManager.aiModelId.collectAsState(initial = ChatSettingsManager.DEFAULT_AI_MODEL_ID)
+    val isBedrockModel = ChatSettingsManager.aiProviderFor(aiModelId) == AiProvider.BEDROCK
     
     // Saved ElevenLabs voices and the live Inworld catalog
     val voiceRepository = remember { VoiceRepository() }
@@ -507,15 +528,16 @@ fun ChatSettingsScreen(
                     expanded = generationSectionExpanded,
                     onToggle = { generationSectionExpanded = !generationSectionExpanded }
                 ) {
-                    // Streaming Toggle
-                    SettingsToggle(
-                        title = "Streaming",
-                        description = "See responses appear in real-time as they're generated",
-                        checked = streamingEnabled,
-                        onCheckedChange = { scope.launch { chatSettingsManager.setStreamingEnabled(it) } }
-                    )
-                    
-                    Spacer(modifier = Modifier.height(8.dp))
+                    if (!isBedrockModel) {
+                        SettingsToggle(
+                            title = "Streaming",
+                            description = "See responses appear in real-time as they're generated",
+                            checked = streamingEnabled,
+                            onCheckedChange = { scope.launch { chatSettingsManager.setStreamingEnabled(it) } }
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
                     
                     // Response Length Dropdown
                     ResponseLengthDropdown(
@@ -573,49 +595,120 @@ fun ChatSettingsScreen(
                     
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                     
-                    // Temperature Slider
-                    SettingsSlider(
-                        title = "Temperature",
-                        description = "Controls creativity/randomness (0 = focused, 2 = creative)",
-                        value = temperature,
-                        valueRange = 0f..2f,
-                        steps = 19,
-                        valueFormatter = { String.format("%.1f", it) },
-                        onValueChange = { scope.launch { chatSettingsManager.setTemperature(it) } }
-                    )
-                    
-                    // TopP Slider
-                    SettingsSlider(
-                        title = "Top P (Nucleus Sampling)",
-                        description = "Probability threshold for response diversity",
-                        value = topP,
-                        valueRange = 0f..1f,
-                        steps = 19,
-                        valueFormatter = { String.format("%.2f", it) },
-                        onValueChange = { scope.launch { chatSettingsManager.setTopP(it) } }
-                    )
-                    
-                    // TopK Slider
-                    SettingsSlider(
-                        title = "Top K",
-                        description = "Maximum tokens to consider when sampling",
-                        value = topK.toFloat(),
-                        valueRange = 1f..100f,
-                        steps = 98,
-                        valueFormatter = { it.roundToInt().toString() },
-                        onValueChange = { scope.launch { chatSettingsManager.setTopK(it.roundToInt()) } }
-                    )
-                    
-                    // Max Output Tokens Slider
-                    SettingsSlider(
-                        title = "Max Output Tokens",
-                        description = "Maximum response length (higher = longer responses)",
-                        value = maxOutputTokens.toFloat(),
-                        valueRange = 256f..32768f,
-                        steps = 127,
-                        valueFormatter = { it.roundToInt().toString() },
-                        onValueChange = { scope.launch { chatSettingsManager.setMaxOutputTokens(it.roundToInt()) } }
-                    )
+                    if (isBedrockModel) {
+                        BedrockSamplingModeSelector(
+                            value = bedrockSamplingMode,
+                            onValueChange = {
+                                scope.launch { chatSettingsManager.setBedrockSamplingMode(it) }
+                            }
+                        )
+
+                        when (bedrockSamplingMode) {
+                            BedrockSamplingMode.TEMPERATURE -> {
+                                SettingsSlider(
+                                    title = "Temperature",
+                                    description = "Controls response randomness",
+                                    value = bedrockTemperature,
+                                    valueRange = 0f..1f,
+                                    steps = 19,
+                                    valueFormatter = { String.format("%.2f", it) },
+                                    onValueChange = {
+                                        scope.launch { chatSettingsManager.setBedrockTemperature(it) }
+                                    }
+                                )
+                            }
+                            BedrockSamplingMode.TOP_P -> {
+                                SettingsSlider(
+                                    title = "Top P",
+                                    description = "Controls nucleus sampling probability",
+                                    value = bedrockTopP,
+                                    valueRange = 0f..1f,
+                                    steps = 999,
+                                    valueFormatter = { String.format("%.3f", it) },
+                                    onValueChange = {
+                                        scope.launch { chatSettingsManager.setBedrockTopP(it) }
+                                    }
+                                )
+                            }
+                        }
+
+                        SettingsToggle(
+                            title = "Top K",
+                            description = "Limit sampling to the highest-probability tokens",
+                            checked = bedrockTopKEnabled,
+                            onCheckedChange = {
+                                scope.launch { chatSettingsManager.setBedrockTopKEnabled(it) }
+                            }
+                        )
+
+                        if (bedrockTopKEnabled) {
+                            SettingsSlider(
+                                title = "Top K Value",
+                                description = "Maximum candidate tokens considered during sampling",
+                                value = bedrockTopK.toFloat(),
+                                valueRange = 0f..500f,
+                                steps = 499,
+                                valueFormatter = { it.roundToInt().toString() },
+                                onValueChange = {
+                                    scope.launch { chatSettingsManager.setBedrockTopK(it.roundToInt()) }
+                                }
+                            )
+                        }
+
+                        SettingsSlider(
+                            title = "Max Output Tokens",
+                            description = "Maximum response length",
+                            value = bedrockMaxOutputTokens.toFloat(),
+                            valueRange = 256f..128_000f,
+                            steps = 127,
+                            valueFormatter = { it.roundToInt().toString() },
+                            onValueChange = {
+                                scope.launch {
+                                    chatSettingsManager.setBedrockMaxOutputTokens(it.roundToInt())
+                                }
+                            }
+                        )
+                    } else {
+                        SettingsSlider(
+                            title = "Temperature",
+                            description = "Controls creativity/randomness (0 = focused, 2 = creative)",
+                            value = temperature,
+                            valueRange = 0f..2f,
+                            steps = 19,
+                            valueFormatter = { String.format("%.1f", it) },
+                            onValueChange = { scope.launch { chatSettingsManager.setTemperature(it) } }
+                        )
+
+                        SettingsSlider(
+                            title = "Top P (Nucleus Sampling)",
+                            description = "Probability threshold for response diversity",
+                            value = topP,
+                            valueRange = 0f..1f,
+                            steps = 19,
+                            valueFormatter = { String.format("%.2f", it) },
+                            onValueChange = { scope.launch { chatSettingsManager.setTopP(it) } }
+                        )
+
+                        SettingsSlider(
+                            title = "Top K",
+                            description = "Maximum tokens to consider when sampling",
+                            value = topK.toFloat(),
+                            valueRange = 1f..100f,
+                            steps = 98,
+                            valueFormatter = { it.roundToInt().toString() },
+                            onValueChange = { scope.launch { chatSettingsManager.setTopK(it.roundToInt()) } }
+                        )
+
+                        SettingsSlider(
+                            title = "Max Output Tokens",
+                            description = "Maximum response length (higher = longer responses)",
+                            value = maxOutputTokens.toFloat(),
+                            valueRange = 256f..32768f,
+                            steps = 127,
+                            valueFormatter = { it.roundToInt().toString() },
+                            onValueChange = { scope.launch { chatSettingsManager.setMaxOutputTokens(it.roundToInt()) } }
+                        )
+                    }
                 }
                 
                 // Text-to-Speech Section
@@ -842,71 +935,69 @@ fun ChatSettingsScreen(
                     }
                 }
                 
-                // Response Style Section
-                SettingsSection(
-                    title = "Response Style",
-                    expanded = styleSectionExpanded,
-                    onToggle = { styleSectionExpanded = !styleSectionExpanded }
-                ) {
-                    // Presence Penalty
-                    SettingsSlider(
-                        title = "Presence Penalty",
-                        description = "Discourages repeating tokens already used",
-                        value = presencePenalty,
-                        valueRange = -2f..2f,
-                        steps = 39,
-                        valueFormatter = { String.format("%.1f", it) },
-                        onValueChange = { scope.launch { chatSettingsManager.setPresencePenalty(it) } }
-                    )
-                    
-                    // Frequency Penalty
-                    SettingsSlider(
-                        title = "Frequency Penalty",
-                        description = "Reduces repetition proportional to token usage",
-                        value = frequencyPenalty,
-                        valueRange = -2f..2f,
-                        steps = 39,
-                        valueFormatter = { String.format("%.1f", it) },
-                        onValueChange = { scope.launch { chatSettingsManager.setFrequencyPenalty(it) } }
-                    )
-                }
-                
-                // Safety Settings Section
-                SettingsSection(
-                    title = "Safety Settings",
-                    expanded = safetySectionExpanded,
-                    onToggle = { safetySectionExpanded = !safetySectionExpanded }
-                ) {
-                    Text(
-                        text = "Adjust content filtering thresholds for different categories",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-                    
-                    SafetySettingDropdown(
-                        title = "Harassment",
-                        value = safetyHarassment,
-                        onValueChange = { scope.launch { chatSettingsManager.setSafetyHarassment(it) } }
-                    )
-                    
-                    SafetySettingDropdown(
-                        title = "Hate Speech",
-                        value = safetyHateSpeech,
-                        onValueChange = { scope.launch { chatSettingsManager.setSafetyHateSpeech(it) } }
-                    )
-                    
-                    SafetySettingDropdown(
-                        title = "Sexually Explicit",
-                        value = safetySexuallyExplicit,
-                        onValueChange = { scope.launch { chatSettingsManager.setSafetySexuallyExplicit(it) } }
-                    )
-                    
-                    SafetySettingDropdown(
-                        title = "Dangerous Content",
-                        value = safetyDangerousContent,
-                        onValueChange = { scope.launch { chatSettingsManager.setSafetyDangerousContent(it) } }
-                    )
+                if (!isBedrockModel) {
+                    SettingsSection(
+                        title = "Response Style",
+                        expanded = styleSectionExpanded,
+                        onToggle = { styleSectionExpanded = !styleSectionExpanded }
+                    ) {
+                        SettingsSlider(
+                            title = "Presence Penalty",
+                            description = "Discourages repeating tokens already used",
+                            value = presencePenalty,
+                            valueRange = -2f..2f,
+                            steps = 39,
+                            valueFormatter = { String.format("%.1f", it) },
+                            onValueChange = { scope.launch { chatSettingsManager.setPresencePenalty(it) } }
+                        )
+
+                        SettingsSlider(
+                            title = "Frequency Penalty",
+                            description = "Reduces repetition proportional to token usage",
+                            value = frequencyPenalty,
+                            valueRange = -2f..2f,
+                            steps = 39,
+                            valueFormatter = { String.format("%.1f", it) },
+                            onValueChange = { scope.launch { chatSettingsManager.setFrequencyPenalty(it) } }
+                        )
+                    }
+
+                    SettingsSection(
+                        title = "Safety Settings",
+                        expanded = safetySectionExpanded,
+                        onToggle = { safetySectionExpanded = !safetySectionExpanded }
+                    ) {
+                        Text(
+                            text = "Adjust content filtering thresholds for different categories",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+
+                        SafetySettingDropdown(
+                            title = "Harassment",
+                            value = safetyHarassment,
+                            onValueChange = { scope.launch { chatSettingsManager.setSafetyHarassment(it) } }
+                        )
+
+                        SafetySettingDropdown(
+                            title = "Hate Speech",
+                            value = safetyHateSpeech,
+                            onValueChange = { scope.launch { chatSettingsManager.setSafetyHateSpeech(it) } }
+                        )
+
+                        SafetySettingDropdown(
+                            title = "Sexually Explicit",
+                            value = safetySexuallyExplicit,
+                            onValueChange = { scope.launch { chatSettingsManager.setSafetySexuallyExplicit(it) } }
+                        )
+
+                        SafetySettingDropdown(
+                            title = "Dangerous Content",
+                            value = safetyDangerousContent,
+                            onValueChange = { scope.launch { chatSettingsManager.setSafetyDangerousContent(it) } }
+                        )
+                    }
                 }
                 
                 // Advanced Section
@@ -915,14 +1006,15 @@ fun ChatSettingsScreen(
                     expanded = advancedSectionExpanded,
                     onToggle = { advancedSectionExpanded = !advancedSectionExpanded }
                 ) {
-                    // Thinking Mode Toggle
-                    SettingsToggle(
-                        title = "Thinking Mode",
-                        description = "Enable extended reasoning for better narrative planning (Gemini 3+)",
-                        checked = thinkingEnabled,
-                        onCheckedChange = { scope.launch { chatSettingsManager.setThinkingEnabled(it) } }
-                    )
-                    
+                    if (!isBedrockModel) {
+                        SettingsToggle(
+                            title = "Thinking Mode",
+                            description = "Enable extended reasoning for better narrative planning (Gemini 3+)",
+                            checked = thinkingEnabled,
+                            onCheckedChange = { scope.launch { chatSettingsManager.setThinkingEnabled(it) } }
+                        )
+                    }
+
                     // Unlock Prompt Toggle
                     SettingsToggle(
                         title = "Enable Unlock Prompt",
@@ -1381,14 +1473,15 @@ fun ChatSettingsScreen(
                         }
                         
                         Text(
-                            text = "Select the Gemini model for AI responses",
+                            text = "Select the AI model for roleplay responses",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
                         )
                         
                         var aiModelExpanded by remember { mutableStateOf(false) }
-                        val selectedModelName = ChatSettingsManager.AVAILABLE_AI_MODELS.find { it.first == aiModelId }?.second ?: "Gemini 2.5 Flash"
+                        val selectedModel = ChatSettingsManager.aiModelOptionFor(aiModelId)
+                        val selectedModelName = selectedModel?.let { "${it.displayName} (${it.providerLabel})" } ?: aiModelId
                         
                         ExposedDropdownMenuBox(
                             expanded = aiModelExpanded,
@@ -1405,17 +1498,36 @@ fun ChatSettingsScreen(
                                 expanded = aiModelExpanded,
                                 onDismissRequest = { aiModelExpanded = false }
                             ) {
-                                ChatSettingsManager.AVAILABLE_AI_MODELS.forEach { (modelId, modelName) ->
-                                    DropdownMenuItem(
-                                        text = { Text(modelName) },
-                                        onClick = {
-                                            scope.launch { chatSettingsManager.setAiModelId(modelId) }
-                                            aiModelExpanded = false
-                                        },
-                                        leadingIcon = if (modelId == aiModelId) {
-                                            { Icon(Icons.Default.Check, contentDescription = null) }
-                                        } else null
-                                    )
+                                ChatSettingsManager.AVAILABLE_AI_MODELS
+                                    .groupBy { it.providerLabel }
+                                    .forEach { (providerLabel, models) ->
+                                        Text(
+                                            text = providerLabel,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                        )
+                                        models.forEach { model ->
+                                            DropdownMenuItem(
+                                                text = {
+                                                    Column {
+                                                        Text(model.displayName)
+                                                        Text(
+                                                            model.modelId,
+                                                            style = MaterialTheme.typography.bodySmall,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                    }
+                                                },
+                                                onClick = {
+                                                    scope.launch { chatSettingsManager.setAiModelId(model.modelId) }
+                                                    aiModelExpanded = false
+                                                },
+                                                leadingIcon = if (model.modelId == aiModelId) {
+                                                    { Icon(Icons.Default.Check, contentDescription = null) }
+                                                } else null
+                                            )
+                                        }
                                 }
                             }
                         }
@@ -1577,6 +1689,45 @@ private fun SettingsToggle(
             checked = checked,
             onCheckedChange = onCheckedChange
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BedrockSamplingModeSelector(
+    value: BedrockSamplingMode,
+    onValueChange: (BedrockSamplingMode) -> Unit
+) {
+    val options = listOf(
+        BedrockSamplingMode.TEMPERATURE to "Temperature",
+        BedrockSamplingMode.TOP_P to "Top P"
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp)
+    ) {
+        Text(
+            text = "Sampling Mode",
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Medium
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            options.forEachIndexed { index, (mode, label) ->
+                SegmentedButton(
+                    selected = value == mode,
+                    onClick = { onValueChange(mode) },
+                    shape = SegmentedButtonDefaults.itemShape(
+                        index = index,
+                        count = options.size
+                    )
+                ) {
+                    Text(label)
+                }
+            }
+        }
     }
 }
 

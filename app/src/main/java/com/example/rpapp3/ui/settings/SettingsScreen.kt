@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
     onNavigateToApiKeys: () -> Unit,
+    onNavigateToBedrockApiKey: () -> Unit,
     onNavigateToElevenLabsApiKeys: () -> Unit,
     onNavigateToAppearance: () -> Unit,
     onNavigateToUnlockPrompt: () -> Unit,
@@ -99,6 +100,13 @@ fun SettingsScreen(
                     title = "Gemini API Keys",
                     subtitle = "Manage your Gemini API keys",
                     onClick = onNavigateToApiKeys
+                )
+
+                SettingsCategoryItem(
+                    icon = Icons.Default.Key,
+                    title = "Amazon Bedrock API Key",
+                    subtitle = "Manage the key for Claude Opus 4.6",
+                    onClick = onNavigateToBedrockApiKey
                 )
                 
                 SettingsCategoryItem(

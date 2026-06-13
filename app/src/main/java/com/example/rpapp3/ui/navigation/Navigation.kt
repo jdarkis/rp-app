@@ -16,6 +16,7 @@ import com.example.rpapp3.ui.chat.ChatSettingsScreen
 import com.example.rpapp3.ui.chat.NewChatScreen
 import com.example.rpapp3.ui.settings.ApiKeysScreen
 import com.example.rpapp3.ui.settings.AppearanceScreen
+import com.example.rpapp3.ui.settings.BedrockApiKeyScreen
 import com.example.rpapp3.ui.settings.ElevenLabsApiKeysScreen
 import com.example.rpapp3.ui.settings.ElevenLabsVoicesScreen
 import com.example.rpapp3.ui.settings.SettingsScreen
@@ -253,6 +254,7 @@ fun AppNavigation(navController: NavHostController) {
             SettingsScreen(
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToApiKeys = { navController.navigate(Routes.SettingsApiKeys.route) },
+                onNavigateToBedrockApiKey = { navController.navigate(Routes.SettingsBedrockApiKey.route) },
                 onNavigateToElevenLabsApiKeys = { navController.navigate(Routes.SettingsElevenLabsApiKeys.route) },
                 onNavigateToAppearance = { navController.navigate(Routes.SettingsAppearance.route) },
                 onNavigateToUnlockPrompt = { navController.navigate(Routes.SettingsUnlockPrompt.route) },
@@ -264,6 +266,12 @@ fun AppNavigation(navController: NavHostController) {
         
         composable(Routes.SettingsApiKeys.route) {
             ApiKeysScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Routes.SettingsBedrockApiKey.route) {
+            BedrockApiKeyScreen(
                 onNavigateBack = { navController.popBackStack() }
             )
         }
@@ -279,7 +287,7 @@ fun AppNavigation(navController: NavHostController) {
                 onNavigateBack = { navController.popBackStack() }
             )
         }
-        
+
         composable(Routes.SettingsUnlockPrompt.route) {
             UnlockPromptScreen(
                 onNavigateBack = { navController.popBackStack() }
