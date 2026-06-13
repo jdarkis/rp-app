@@ -1021,7 +1021,7 @@ fun ChatSettingsScreen(
                     // System Prompt Toggle
                     SettingsToggle(
                         title = "Enable System Prompt",
-                        description = "Include the global system prompt from app settings",
+                        description = "Send system instructions with model requests",
                         checked = systemPromptEnabled,
                         onCheckedChange = { scope.launch { chatSettingsManager.setSystemPromptEnabled(it) } }
                     )

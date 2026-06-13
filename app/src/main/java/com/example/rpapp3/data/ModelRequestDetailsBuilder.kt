@@ -36,10 +36,12 @@ fun buildGeminiRequestDetails(
         put("_note", "SDK-equivalent semantic snapshot. The Gemini SDK does not expose the literal HTTP request body.")
         put("model", settings.aiModelId)
         put("streaming", settings.streamingEnabled)
-        put("systemInstruction", buildJsonObject {
-            put("role", "system")
-            put("parts", textParts(systemPrompt))
-        })
+        if (systemPrompt.isNotBlank()) {
+            put("systemInstruction", buildJsonObject {
+                put("role", "system")
+                put("parts", textParts(systemPrompt))
+            })
+        }
         put("contents", buildJsonArray {
             messages.forEach { message ->
                 add(buildJsonObject {

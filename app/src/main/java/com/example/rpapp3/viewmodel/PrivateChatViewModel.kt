@@ -288,17 +288,21 @@ class PrivateChatViewModel : ViewModel() {
             return
         }
         
-        // Build private chat system instructions (no narrator!)
-        val baseSystemInstructions = buildPrivateChatSystemInstructions(char)
-        
-        // Add explicit instructions to avoid external tools for Pro models to mitigate quota issues
-        val extraInstructions = if (currentSettings.aiModelId.contains("pro", ignoreCase = true)) {
-            "\n\n=== TOOL USAGE ===\nDo NOT use any external tools, search engines, or grounding. Rely ONLY on your internal knowledge and the provided context."
+        val systemInstructions = if (currentSettings.systemPromptEnabled) {
+            val globalSystemPrompt = settingsRepository.getSystemPromptOnce()
+            val baseSystemInstructions = buildPrivateChatSystemInstructions(
+                character = char,
+                globalSystemPrompt = globalSystemPrompt
+            )
+            val extraInstructions = if (currentSettings.aiModelId.contains("pro", ignoreCase = true)) {
+                "\n\n=== TOOL USAGE ===\nDo NOT use any external tools, search engines, or grounding. Rely ONLY on your internal knowledge and the provided context."
+            } else {
+                ""
+            }
+            baseSystemInstructions + extraInstructions
         } else {
             ""
         }
-        
-        val systemInstructions = baseSystemInstructions + extraInstructions
         _systemPrompt.value = systemInstructions
 
         if (currentAiProvider == AiProvider.BEDROCK) {
@@ -332,7 +336,9 @@ class PrivateChatViewModel : ViewModel() {
                 topK = currentSettings.topK
                 maxOutputTokens = currentSettings.maxOutputTokens
             },
-            systemInstruction = content { text(systemInstructions) },
+            systemInstruction = systemInstructions
+                .takeIf { it.isNotBlank() }
+                ?.let { prompt -> content { text(prompt) } },
             safetySettings = safetySettings
         )
         
@@ -349,7 +355,10 @@ class PrivateChatViewModel : ViewModel() {
     /**
      * Build system instructions for private chat - NO NARRATOR, direct conversation
      */
-    private suspend fun buildPrivateChatSystemInstructions(character: Character): String {
+    private suspend fun buildPrivateChatSystemInstructions(
+        character: Character,
+        globalSystemPrompt: String
+    ): String {
         // Load unlock prompt if enabled for private chat
         val unlockPrompt = if (privateChatSettings.unlockPromptEnabled) {
             settingsRepository.getUnlockPromptOnce()
@@ -362,6 +371,11 @@ class PrivateChatViewModel : ViewModel() {
             if (unlockPrompt.isNotBlank()) {
                 appendLine("=== UNLOCK PROMPT ===")
                 appendLine(unlockPrompt)
+                appendLine()
+            }
+
+            if (globalSystemPrompt.isNotBlank()) {
+                appendLine(globalSystemPrompt)
                 appendLine()
             }
             

@@ -15,6 +15,27 @@ import org.junit.Test
 class ModelRequestDetailsTest {
 
     @Test
+    fun geminiSnapshotOmitsSystemInstructionWhenPromptIsDisabled() {
+        val details = buildGeminiRequestDetails(
+            chatId = "chat-1",
+            userMessage = ChatMessage(
+                id = "message-1",
+                chatId = "chat-1",
+                text = "Hello",
+                isUser = true
+            ),
+            history = emptyList(),
+            systemPrompt = "",
+            settings = ChatSettings()
+        )
+
+        val raw = Json.parseToJsonElement(details.rawSnapshot).jsonObject
+
+        assertTrue(details.systemPrompt.isEmpty())
+        assertFalse(raw.containsKey("systemInstruction"))
+    }
+
+    @Test
     fun firestoreRoundTripPreservesNestedRequestDetails() {
         val pending = ChatMessage(
             id = "message-1",

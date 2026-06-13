@@ -89,6 +89,7 @@ class BedrockServiceTest {
         val inferenceConfig = json.getValue("inferenceConfig").jsonObject
         val additionalFields = json.getValue("additionalModelRequestFields").jsonObject
 
+        assertFalse(json.containsKey("system"))
         assertFalse(inferenceConfig.containsKey("temperature"))
         assertEquals(
             0.8,

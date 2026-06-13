@@ -382,35 +382,28 @@ class ChatViewModel : ViewModel() {
         currentSettings = chatSettingsManager?.getCurrentSettings() ?: ChatSettings()
         currentAiProvider = ChatSettingsManager.aiProviderFor(currentSettings.aiModelId)
         
-        // Load unlock prompt if enabled
-        val unlockPrompt = if (currentSettings.unlockPromptEnabled) {
-            settingsRepository.getUnlockPromptOnce()
+        val systemInstructions = if (currentSettings.systemPromptEnabled) {
+            val unlockPrompt = if (currentSettings.unlockPromptEnabled) {
+                settingsRepository.getUnlockPromptOnce()
+            } else {
+                ""
+            }
+            val globalSystemPrompt = settingsRepository.getSystemPromptOnce()
+            val baseSystemInstructions = buildSystemInstructions(
+                world = world,
+                characters = characters,
+                unlockPrompt = unlockPrompt,
+                globalSystemPrompt = globalSystemPrompt
+            )
+            val extraInstructions = if (currentSettings.aiModelId.contains("pro", ignoreCase = true)) {
+                "\n\n=== TOOL USAGE ===\nDo NOT use any external tools, search engines, or grounding. Rely ONLY on your internal knowledge and the provided context."
+            } else {
+                ""
+            }
+            baseSystemInstructions + extraInstructions
         } else {
             ""
         }
-
-        val globalSystemPrompt = if (currentSettings.systemPromptEnabled) {
-            settingsRepository.getSystemPromptOnce()
-        } else {
-            ""
-        }
-
-        // Build system instructions from world and characters
-        val baseSystemInstructions = buildSystemInstructions(
-            world = world,
-            characters = characters,
-            unlockPrompt = unlockPrompt,
-            globalSystemPrompt = globalSystemPrompt
-        )
-        
-        // Add explicit instructions to avoid external tools for Pro models to mitigate quota issues
-        val extraInstructions = if (currentSettings.aiModelId.contains("pro", ignoreCase = true)) {
-            "\n\n=== TOOL USAGE ===\nDo NOT use any external tools, search engines, or grounding. Rely ONLY on your internal knowledge and the provided context."
-        } else {
-            ""
-        }
-        
-        val systemInstructions = baseSystemInstructions + extraInstructions
         _systemPrompt.value = systemInstructions
 
         if (currentAiProvider == AiProvider.BEDROCK) {
@@ -446,7 +439,9 @@ class ChatViewModel : ViewModel() {
                 topK = currentSettings.topK
                 maxOutputTokens = currentSettings.maxOutputTokens
             },
-            systemInstruction = content { text(systemInstructions) },
+            systemInstruction = systemInstructions
+                .takeIf { it.isNotBlank() }
+                ?.let { prompt -> content { text(prompt) } },
             safetySettings = safetySettings
         )
         
