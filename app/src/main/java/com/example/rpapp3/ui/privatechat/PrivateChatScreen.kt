@@ -2,7 +2,9 @@ package com.example.rpapp3.ui.privatechat
 
 import android.widget.Toast
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -27,6 +29,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.rpapp3.data.model.ChatMessage
 import com.example.rpapp3.data.model.Character
+import com.example.rpapp3.data.model.ModelRequestDetails
+import com.example.rpapp3.ui.components.ModelRequestDetailsDialog
 import com.example.rpapp3.viewmodel.DisplayFilterSettings
 import com.example.rpapp3.viewmodel.PrivateChatViewModel
 import kotlinx.coroutines.launch
@@ -50,6 +54,19 @@ fun PrivateChatScreen(
     
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    var showRequestDetailsDialog by remember { mutableStateOf(false) }
+    var requestDetails by remember { mutableStateOf<ModelRequestDetails?>(null) }
+    var requestDetailsLoading by remember { mutableStateOf(false) }
+    var requestDetailsError by remember { mutableStateOf<String?>(null) }
+
+    if (showRequestDetailsDialog) {
+        ModelRequestDetailsDialog(
+            details = requestDetails,
+            isLoading = requestDetailsLoading,
+            errorMessage = requestDetailsError,
+            onDismiss = { showRequestDetailsDialog = false }
+        )
+    }
     
     // Track if this is the initial load (to skip scroll animation)
     var isInitialLoad by remember { mutableStateOf(true) }
@@ -144,7 +161,23 @@ fun PrivateChatScreen(
                     MessageBubble(
                         message = message,
                         character = character,
-                        displayFilterSettings = displayFilterSettings
+                        displayFilterSettings = displayFilterSettings,
+                        onDetails = if (message.isUser) {
+                            {
+                                showRequestDetailsDialog = true
+                                requestDetails = null
+                                requestDetailsError = null
+                                requestDetailsLoading = true
+                                scope.launch {
+                                    viewModel.getModelRequestDetails(message.id)
+                                        .onSuccess { requestDetails = it }
+                                        .onFailure {
+                                            requestDetailsError = it.message ?: "Failed to load request details."
+                                        }
+                                    requestDetailsLoading = false
+                                }
+                            }
+                        } else null
                     )
                 }
                 
@@ -237,13 +270,16 @@ private fun PrivateChatTopBar(
     )
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MessageBubble(
     message: ChatMessage,
     character: Character?,
-    displayFilterSettings: DisplayFilterSettings = DisplayFilterSettings()
+    displayFilterSettings: DisplayFilterSettings = DisplayFilterSettings(),
+    onDetails: (() -> Unit)? = null
 ) {
     val isUser = message.isUser
+    var showMenu by remember { mutableStateOf(false) }
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
     val timeString = remember(message.timestamp) { 
         timeFormat.format(Date(message.timestamp)) 
@@ -301,46 +337,75 @@ private fun MessageBubble(
         }
         
         // Message bubble
-        Surface(
-            modifier = Modifier.widthIn(max = 280.dp),
-            shape = RoundedCornerShape(
-                topStart = 16.dp,
-                topEnd = 16.dp,
-                bottomStart = if (isUser) 16.dp else 4.dp,
-                bottomEnd = if (isUser) 4.dp else 16.dp
-            ),
-            color = if (isUser) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.secondaryContainer
-            }
-        ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-            ) {
-                SelectionContainer {
-                    Text(
-                        text = displayText,
-                        color = if (isUser) {
-                            MaterialTheme.colorScheme.onPrimary
+        Box {
+            Surface(
+                modifier = Modifier
+                    .widthIn(max = 280.dp)
+                    .then(
+                        if (isUser && onDetails != null) {
+                            Modifier.combinedClickable(
+                                onClick = {},
+                                onLongClick = { showMenu = true }
+                            )
                         } else {
-                            MaterialTheme.colorScheme.onSecondaryContainer
+                            Modifier
+                        }
+                    ),
+                shape = RoundedCornerShape(
+                    topStart = 16.dp,
+                    topEnd = 16.dp,
+                    bottomStart = if (isUser) 16.dp else 4.dp,
+                    bottomEnd = if (isUser) 4.dp else 16.dp
+                ),
+                color = if (isUser) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.secondaryContainer
+                }
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    SelectionContainer {
+                        Text(
+                            text = displayText,
+                            color = if (isUser) {
+                                MaterialTheme.colorScheme.onPrimary
+                            } else {
+                                MaterialTheme.colorScheme.onSecondaryContainer
+                            },
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Text(
+                        text = timeString,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isUser) {
+                            MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f)
+                        } else {
+                            MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
                         },
-                        style = MaterialTheme.typography.bodyMedium
+                        modifier = Modifier.align(Alignment.End)
                     )
                 }
-                
-                Spacer(modifier = Modifier.height(4.dp))
-                
-                Text(
-                    text = timeString,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (isUser) {
-                        MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f)
-                    } else {
-                        MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+            }
+
+            DropdownMenu(
+                expanded = showMenu,
+                onDismissRequest = { showMenu = false }
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Details") },
+                    onClick = {
+                        showMenu = false
+                        onDetails?.invoke()
                     },
-                    modifier = Modifier.align(Alignment.End)
+                    leadingIcon = {
+                        Icon(Icons.Default.Info, contentDescription = null)
+                    }
                 )
             }
         }

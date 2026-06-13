@@ -2,6 +2,7 @@ package com.example.rpapp3.data.repository
 
 import com.example.rpapp3.data.model.Chat
 import com.example.rpapp3.data.model.ChatMessage
+import com.example.rpapp3.data.model.ModelRequestDetails
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.channels.awaitClose
@@ -300,18 +301,58 @@ class ChatRepository {
             Result.failure(e)
         }
     }
+
+    suspend fun saveModelRequestDetails(details: ModelRequestDetails): Result<Unit> {
+        return try {
+            chatsCollection
+                .document(details.chatId)
+                .collection("request_details")
+                .document(details.messageId)
+                .set(details.toMap())
+                .await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getModelRequestDetails(
+        chatId: String,
+        messageId: String
+    ): Result<ModelRequestDetails?> {
+        return try {
+            val document = chatsCollection
+                .document(chatId)
+                .collection("request_details")
+                .document(messageId)
+                .get()
+                .await()
+            Result.success(
+                document.data?.let(ModelRequestDetails::fromMap)
+            )
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
     
     /**
      * Delete a single message from a chat
      */
     suspend fun deleteMessage(chatId: String, messageId: String): Result<Unit> {
         return try {
-            chatsCollection
-                .document(chatId)
-                .collection("messages")
-                .document(messageId)
-                .delete()
-                .await()
+            val chatDocument = chatsCollection.document(chatId)
+            val batch = firestore.batch()
+            batch.delete(
+                chatDocument
+                    .collection("messages")
+                    .document(messageId)
+            )
+            batch.delete(
+                chatDocument
+                    .collection("request_details")
+                    .document(messageId)
+            )
+            batch.commit().await()
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
@@ -324,12 +365,18 @@ class ChatRepository {
     suspend fun deleteMessages(chatId: String, messageIds: List<String>): Result<Unit> {
         return try {
             val batch = firestore.batch()
+            val chatDocument = chatsCollection.document(chatId)
             messageIds.forEach { messageId ->
-                val docRef = chatsCollection
-                    .document(chatId)
-                    .collection("messages")
-                    .document(messageId)
-                batch.delete(docRef)
+                batch.delete(
+                    chatDocument
+                        .collection("messages")
+                        .document(messageId)
+                )
+                batch.delete(
+                    chatDocument
+                        .collection("request_details")
+                        .document(messageId)
+                )
             }
             batch.commit().await()
             Result.success(Unit)
@@ -343,14 +390,21 @@ class ChatRepository {
      */
     private suspend fun deleteMessagesByChat(chatId: String) {
         try {
-            val docs = chatsCollection
-                .document(chatId)
+            val chatDocument = chatsCollection.document(chatId)
+            val messageDocuments = chatDocument
                 .collection("messages")
+                .get()
+                .await()
+            val requestDetailDocuments = chatDocument
+                .collection("request_details")
                 .get()
                 .await()
             
             val batch = firestore.batch()
-            docs.documents.forEach { doc ->
+            messageDocuments.documents.forEach { doc ->
+                batch.delete(doc.reference)
+            }
+            requestDetailDocuments.documents.forEach { doc ->
                 batch.delete(doc.reference)
             }
             batch.commit().await()

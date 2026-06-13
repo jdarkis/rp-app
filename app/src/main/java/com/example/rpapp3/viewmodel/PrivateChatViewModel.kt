@@ -12,7 +12,9 @@ import com.example.rpapp3.data.BedrockApiKeyManager
 import com.example.rpapp3.data.BedrockConverseRequest
 import com.example.rpapp3.data.BedrockGenerationException
 import com.example.rpapp3.data.BedrockService
+import com.example.rpapp3.data.buildBedrockRequestDetails
 import com.example.rpapp3.data.buildBedrockMessages
+import com.example.rpapp3.data.buildGeminiRequestDetails
 import com.example.rpapp3.data.ChatSettings
 import com.example.rpapp3.data.ChatSettingsManager
 import com.example.rpapp3.data.ElevenLabsService
@@ -27,6 +29,8 @@ import com.example.rpapp3.data.TtsRequestResolver
 import com.example.rpapp3.data.model.Character
 import com.example.rpapp3.data.model.Chat
 import com.example.rpapp3.data.model.ChatMessage
+import com.example.rpapp3.data.model.ModelRequestDetails
+import com.example.rpapp3.data.model.ModelRequestStatus
 import com.example.rpapp3.data.repository.CharacterRepository
 import com.example.rpapp3.data.repository.ChatRepository
 import com.example.rpapp3.data.repository.SettingsRepository
@@ -511,11 +515,13 @@ class PrivateChatViewModel : ViewModel() {
         chatId: String,
         character: Character,
         keyAttemptNumber: Int = 0,
-        rateLimitRetries: Int = 0
+        rateLimitRetries: Int = 0,
+        requestDetailsRecorded: Boolean = false
     ) {
         val userMessage = userChatMessage.text
         currentSettings = chatSettingsManager?.getCurrentSettings() ?: ChatSettings()
         currentAiProvider = ChatSettingsManager.aiProviderFor(currentSettings.aiModelId)
+        var detailsRecorded = requestDetailsRecorded
 
         val totalKeys = if (currentAiProvider == AiProvider.GEMINI) {
             apiKeyManager?.apiKeys?.first()?.size ?: 0
@@ -549,6 +555,15 @@ class PrivateChatViewModel : ViewModel() {
                 } else {
                     "Failed to initialize AI. Check your API key in Settings."
                 }
+                if (!detailsRecorded) {
+                    saveRequestDetails(
+                        userMessage = userChatMessage,
+                        chatId = chatId,
+                        status = ModelRequestStatus.NOT_SENT,
+                        failureReason = setupError
+                    )
+                    detailsRecorded = true
+                }
                 _error.value = setupError
                 
                 val errorChatMessage = ChatMessage(
@@ -569,14 +584,25 @@ class PrivateChatViewModel : ViewModel() {
                 if (apiKey.isNullOrBlank()) {
                     throw BedrockGenerationException("No Bedrock API key configured. Please add one in Settings.")
                 }
+                val bedrockRequest = BedrockConverseRequest(
+                    modelId = currentSettings.aiModelId,
+                    systemPrompt = _systemPrompt.value.orEmpty(),
+                    messages = buildBedrockMessages(_fullMessageHistory, userChatMessage),
+                    settings = currentSettings
+                )
+                if (!detailsRecorded) {
+                    persistRequestDetails(
+                        buildBedrockRequestDetails(
+                            chatId = chatId,
+                            userMessage = userChatMessage,
+                            request = bedrockRequest
+                        )
+                    )
+                    detailsRecorded = true
+                }
                 val responseText = bedrockService?.converseWithRetry(
                     apiKey = apiKey,
-                    request = BedrockConverseRequest(
-                        modelId = currentSettings.aiModelId,
-                        systemPrompt = _systemPrompt.value.orEmpty(),
-                        messages = buildBedrockMessages(_fullMessageHistory, userChatMessage),
-                        settings = currentSettings
-                    )
+                    request = bedrockRequest
                 )?.text
 
                 if (responseText.isNullOrBlank()) {
@@ -608,6 +634,19 @@ class PrivateChatViewModel : ViewModel() {
 
                 _isLoading.value = false
                 return
+            }
+
+            if (!detailsRecorded) {
+                persistRequestDetails(
+                    buildGeminiRequestDetails(
+                        chatId = chatId,
+                        userMessage = userChatMessage,
+                        history = modelHistory(userChatMessage.id),
+                        systemPrompt = _systemPrompt.value.orEmpty(),
+                        settings = currentSettings
+                    )
+                )
+                detailsRecorded = true
             }
             
             if (currentSettings.streamingEnabled) {
@@ -713,6 +752,15 @@ class PrivateChatViewModel : ViewModel() {
                     append(" Caused by: ${cause.localizedMessage ?: cause.message}")
                 }
             }
+            if (!detailsRecorded) {
+                saveRequestDetails(
+                    userMessage = userChatMessage,
+                    chatId = chatId,
+                    status = ModelRequestStatus.NOT_SENT,
+                    failureReason = errorMessage
+                )
+                detailsRecorded = true
+            }
 
             if (currentAiProvider == AiProvider.BEDROCK) {
                 val bedrockErrorMessage = BedrockService.userFacingErrorMessage(e)
@@ -736,7 +784,14 @@ class PrivateChatViewModel : ViewModel() {
                 if (rateLimitRetries < maxRateLimitRetries) {
                     val delayMs = 2000L * (1 shl rateLimitRetries)
                     delay(delayMs)
-                    sendMessageWithRetry(userChatMessage, chatId, character, keyAttemptNumber, rateLimitRetries + 1)
+                    sendMessageWithRetry(
+                        userChatMessage,
+                        chatId,
+                        character,
+                        keyAttemptNumber,
+                        rateLimitRetries + 1,
+                        detailsRecorded
+                    )
                     return
                 }
             }
@@ -749,7 +804,14 @@ class PrivateChatViewModel : ViewModel() {
                     generativeModel = null
                     initializeAI(excludedMessageId = userChatMessage.id)
                     delay(500L)
-                    sendMessageWithRetry(userChatMessage, chatId, character, keyAttemptNumber + 1, 0)
+                    sendMessageWithRetry(
+                        userChatMessage,
+                        chatId,
+                        character,
+                        keyAttemptNumber + 1,
+                        0,
+                        detailsRecorded
+                    )
                     return
                 } else {
                     _error.value = "All API keys have exceeded their quota."
@@ -783,6 +845,51 @@ class PrivateChatViewModel : ViewModel() {
             
             _isLoading.value = false
         }
+    }
+
+    private suspend fun saveRequestDetails(
+        userMessage: ChatMessage,
+        chatId: String,
+        status: ModelRequestStatus,
+        failureReason: String
+    ) {
+        val details = when (currentAiProvider) {
+            AiProvider.GEMINI -> buildGeminiRequestDetails(
+                chatId = chatId,
+                userMessage = userMessage,
+                history = modelHistory(userMessage.id),
+                systemPrompt = _systemPrompt.value.orEmpty(),
+                settings = currentSettings,
+                status = status,
+                failureReason = failureReason
+            )
+            AiProvider.BEDROCK -> buildBedrockRequestDetails(
+                chatId = chatId,
+                userMessage = userMessage,
+                request = BedrockConverseRequest(
+                    modelId = currentSettings.aiModelId,
+                    systemPrompt = _systemPrompt.value.orEmpty(),
+                    messages = buildBedrockMessages(_fullMessageHistory, userMessage),
+                    settings = currentSettings
+                ),
+                status = status,
+                failureReason = failureReason
+            )
+        }
+        persistRequestDetails(details)
+    }
+
+    private suspend fun persistRequestDetails(details: ModelRequestDetails) {
+        chatRepository.saveModelRequestDetails(details)
+            .onFailure { error ->
+                Log.w("PrivateChatViewModel", "Failed to save model request details", error)
+            }
+    }
+
+    suspend fun getModelRequestDetails(messageId: String): Result<ModelRequestDetails?> {
+        val chatId = _currentChat.value?.id
+            ?: return Result.failure(IllegalStateException("Chat is not loaded"))
+        return chatRepository.getModelRequestDetails(chatId, messageId)
     }
     
     fun deleteMessage(messageId: String) {

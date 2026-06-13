@@ -20,6 +20,7 @@ import com.example.rpapp3.ui.settings.BedrockApiKeyScreen
 import com.example.rpapp3.ui.settings.ElevenLabsApiKeysScreen
 import com.example.rpapp3.ui.settings.ElevenLabsVoicesScreen
 import com.example.rpapp3.ui.settings.SettingsScreen
+import com.example.rpapp3.ui.settings.SystemPromptScreen
 import com.example.rpapp3.ui.settings.UnlockPromptScreen
 import com.example.rpapp3.ui.settings.InworldApiKeysScreen
 import com.example.rpapp3.ui.settings.InworldVoicesScreen
@@ -257,6 +258,7 @@ fun AppNavigation(navController: NavHostController) {
                 onNavigateToBedrockApiKey = { navController.navigate(Routes.SettingsBedrockApiKey.route) },
                 onNavigateToElevenLabsApiKeys = { navController.navigate(Routes.SettingsElevenLabsApiKeys.route) },
                 onNavigateToAppearance = { navController.navigate(Routes.SettingsAppearance.route) },
+                onNavigateToSystemPrompt = { navController.navigate(Routes.SettingsSystemPrompt.route) },
                 onNavigateToUnlockPrompt = { navController.navigate(Routes.SettingsUnlockPrompt.route) },
                 onNavigateToElevenLabsVoices = { navController.navigate(Routes.SettingsElevenLabsVoices.route) },
                 onNavigateToInworldApiKeys = { navController.navigate(Routes.SettingsInworldApiKeys.route) },
@@ -284,6 +286,12 @@ fun AppNavigation(navController: NavHostController) {
         
         composable(Routes.SettingsAppearance.route) {
             AppearanceScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Routes.SettingsSystemPrompt.route) {
+            SystemPromptScreen(
                 onNavigateBack = { navController.popBackStack() }
             )
         }

@@ -207,6 +207,9 @@ Output Format Example: Internal Thought: I'm feeling a bit annoyed that they're 
     // Unlock Prompt Setting
     private val UNLOCK_PROMPT_ENABLED_KEY = booleanPreferencesKey("unlock_prompt_enabled")
 
+    // System Prompt Setting
+    private val SYSTEM_PROMPT_ENABLED_KEY = booleanPreferencesKey("system_prompt_enabled")
+
     // Narrator Language Setting
     private val NARRATOR_LANGUAGE_KEY = stringPreferencesKey("narrator_language")
     
@@ -444,6 +447,11 @@ Output Format Example: Internal Thought: I'm feeling a bit annoyed that they're 
     val unlockPromptEnabled: Flow<Boolean> = context.chatSettingsDataStore.data
         .map { preferences ->
             preferences[UNLOCK_PROMPT_ENABLED_KEY] ?: false // Default OFF
+        }
+
+    val systemPromptEnabled: Flow<Boolean> = context.chatSettingsDataStore.data
+        .map { preferences ->
+            preferences[SYSTEM_PROMPT_ENABLED_KEY] ?: true // Default ON
         }
 
     // Narrator Language Setting (default English)
@@ -710,6 +718,12 @@ Output Format Example: Internal Thought: I'm feeling a bit annoyed that they're 
         }
     }
 
+    suspend fun setSystemPromptEnabled(enabled: Boolean) {
+        context.chatSettingsDataStore.edit { preferences ->
+            preferences[SYSTEM_PROMPT_ENABLED_KEY] = enabled
+        }
+    }
+
     suspend fun setNarratorLanguage(language: String) {
         context.chatSettingsDataStore.edit { preferences ->
             preferences[NARRATOR_LANGUAGE_KEY] = language
@@ -823,6 +837,8 @@ Output Format Example: Internal Thought: I'm feeling a bit annoyed that they're 
             preferences[TTS_MODEL_ID_KEY] = DEFAULT_TTS_MODEL_ID
             // Unlock Prompt default
             preferences[UNLOCK_PROMPT_ENABLED_KEY] = false
+            // System Prompt default
+            preferences[SYSTEM_PROMPT_ENABLED_KEY] = true
             // Narrator Language default
             preferences[NARRATOR_LANGUAGE_KEY] = "en"
             // AI Model default
@@ -862,6 +878,7 @@ Output Format Example: Internal Thought: I'm feeling a bit annoyed that they're 
             narratorVoiceId = narratorVoiceId.first(),
             ttsModelId = ttsModelId.first(),
             unlockPromptEnabled = unlockPromptEnabled.first(),
+            systemPromptEnabled = systemPromptEnabled.first(),
             narratorLanguage = narratorLanguage.first(),
             aiModelId = selectedModelId
         )
@@ -937,6 +954,8 @@ data class ChatSettings(
     val ttsModelId: String = ChatSettingsManager.DEFAULT_TTS_MODEL_ID,
     // Unlock Prompt
     val unlockPromptEnabled: Boolean = false,
+    // System Prompt
+    val systemPromptEnabled: Boolean = true,
     // Narrator Language (default English)
     val narratorLanguage: String = "en",
     // AI Model

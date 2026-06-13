@@ -6,7 +6,6 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -33,7 +32,7 @@ internal data class ElevenLabsCatalogVoice(
 ) {
     fun toVoice(): Voice {
         val metadata = buildMap {
-            put("free_users_allowed", "true")
+            put("free_api_compatible", "true")
             put("catalog_source", source.name)
             description?.let { put("description", it) }
             language?.let { put("language", it) }
@@ -58,18 +57,18 @@ internal data class ElevenLabsVoicePage(
 )
 
 internal fun selectableElevenLabsVoices(voices: List<Voice>): List<Voice> {
-    return voices.filter { it.source == VoiceSource.ELEVEN_LABS }
+    return voices.filter(::isFreeApiCompatibleElevenLabsVoice)
+}
+
+internal fun isFreeApiCompatibleElevenLabsVoice(voice: Voice): Boolean {
+    return voice.source == VoiceSource.ELEVEN_LABS &&
+        voice.labels["catalog_source"] == ElevenLabsCatalogSource.DEFAULT.name
 }
 
 internal class ElevenLabsCatalogHttpException(
     val responseCode: Int,
     responseBody: String
 ) : Exception("ElevenLabs voice catalog request failed ($responseCode): $responseBody")
-
-private data class ParsedSharedVoicePage(
-    val voices: List<ElevenLabsCatalogVoice>,
-    val hasMore: Boolean
-)
 
 private val catalogJson = Json {
     ignoreUnknownKeys = true
@@ -82,26 +81,14 @@ internal fun buildDefaultVoicesPath(search: String): String {
     }
 }
 
-internal fun buildSharedVoicesPath(page: Int, search: String): String {
-    require(page >= 0) { "Page must not be negative" }
-    return buildString {
-        append("/v1/shared-voices?page_size=100&page=")
-        append(page)
-        appendSearchParameter(search)
-    }
-}
-
 internal fun parseFreeTierVoicePage(
-    defaultVoicesJson: String?,
-    sharedVoicesJson: String,
+    defaultVoicesJson: String,
     page: Int
 ): ElevenLabsVoicePage {
-    val defaultVoices = defaultVoicesJson?.let(::parseDefaultVoices).orEmpty()
-    val sharedPage = parseSharedVoices(sharedVoicesJson)
     return ElevenLabsVoicePage(
-        voices = (defaultVoices + sharedPage.voices).distinctBy { it.voiceId },
+        voices = parseDefaultVoices(defaultVoicesJson).distinctBy { it.voiceId },
         page = page,
-        hasMore = sharedPage.hasMore
+        hasMore = false
     )
 }
 
@@ -128,6 +115,13 @@ private fun parseDefaultVoices(responseBody: String): List<ElevenLabsCatalogVoic
         val voice = element as? JsonObject ?: return@mapNotNull null
         val voiceId = voice.string("voice_id") ?: return@mapNotNull null
         val name = voice.string("name") ?: return@mapNotNull null
+        val availableTiers = voice.arrayOrNull("available_for_tiers")
+            ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+            ?.map { it.lowercase() }
+            .orEmpty()
+        if (availableTiers.isNotEmpty() && "free" !in availableTiers) {
+            return@mapNotNull null
+        }
         val labels = voice.objectOrNull("labels")
         val verifiedLanguage = voice.arrayOrNull("verified_languages")
             ?.firstOrNull()
@@ -145,31 +139,6 @@ private fun parseDefaultVoices(responseBody: String): List<ElevenLabsCatalogVoic
             source = ElevenLabsCatalogSource.DEFAULT
         )
     }
-}
-
-private fun parseSharedVoices(responseBody: String): ParsedSharedVoicePage {
-    val root = parseRoot(responseBody)
-    val voices = root.requiredArray("voices").mapNotNull { element ->
-        val voice = element as? JsonObject ?: return@mapNotNull null
-        if (voice.boolean("free_users_allowed") != true) return@mapNotNull null
-        val voiceId = voice.string("voice_id") ?: return@mapNotNull null
-        val name = voice.string("name") ?: return@mapNotNull null
-        ElevenLabsCatalogVoice(
-            voiceId = voiceId,
-            name = name,
-            previewUrl = voice.string("preview_url"),
-            description = voice.string("description"),
-            language = voice.string("language"),
-            gender = voice.string("gender"),
-            accent = voice.string("accent"),
-            category = voice.string("category"),
-            source = ElevenLabsCatalogSource.SHARED
-        )
-    }
-    return ParsedSharedVoicePage(
-        voices = voices,
-        hasMore = root.boolean("has_more") ?: false
-    )
 }
 
 private fun parseRoot(responseBody: String): JsonObject {
@@ -190,10 +159,6 @@ private fun JsonObject.requiredArray(key: String): JsonArray {
 
 private fun JsonObject.string(key: String): String? {
     return (this[key] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
-}
-
-private fun JsonObject.boolean(key: String): Boolean? {
-    return (this[key] as? JsonPrimitive)?.booleanOrNull
 }
 
 private fun JsonObject.objectOrNull(key: String): JsonObject? {

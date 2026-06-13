@@ -65,7 +65,9 @@ import androidx.compose.ui.unit.dp
 import com.example.rpapp3.data.ElevenLabsCatalogSource
 import com.example.rpapp3.data.ElevenLabsCatalogVoice
 import com.example.rpapp3.data.ElevenLabsService
+import com.example.rpapp3.data.isFreeApiCompatibleElevenLabsVoice
 import com.example.rpapp3.data.model.Voice
+import com.example.rpapp3.data.model.VoiceSource
 import com.example.rpapp3.data.repository.VoiceRepository
 import com.example.rpapp3.data.selectableElevenLabsVoices
 import kotlinx.coroutines.delay
@@ -91,8 +93,13 @@ fun ElevenLabsVoicesScreen(
 
     val savedVoicesFlow = remember(voiceRepository) { voiceRepository.getCustomVoices() }
     val savedVoices by savedVoicesFlow.collectAsState(initial = emptyList())
-    val activeVoices = remember(savedVoices) { selectableElevenLabsVoices(savedVoices) }
-    val activeVoiceIds = remember(activeVoices) { activeVoices.mapTo(hashSetOf()) { it.voiceId } }
+    val savedElevenLabsVoices = remember(savedVoices) {
+        savedVoices.filter { it.source == VoiceSource.ELEVEN_LABS }
+    }
+    val assignableVoices = remember(savedVoices) { selectableElevenLabsVoices(savedVoices) }
+    val activeVoiceIds = remember(savedElevenLabsVoices) {
+        savedElevenLabsVoices.mapTo(hashSetOf()) { it.voiceId }
+    }
 
     var selectedTab by remember { mutableStateOf(VoiceCatalogTab.AVAILABLE) }
     var searchInput by remember { mutableStateOf("") }
@@ -253,12 +260,12 @@ fun ElevenLabsVoicesScreen(
         }
     }
 
-    val filteredActiveVoices = remember(activeVoices, searchInput) {
+    val filteredActiveVoices = remember(savedElevenLabsVoices, searchInput) {
         val query = searchInput.trim()
         if (query.isEmpty()) {
-            activeVoices
+            savedElevenLabsVoices
         } else {
-            activeVoices.filter { voice ->
+            savedElevenLabsVoices.filter { voice ->
                 voice.name.contains(query, ignoreCase = true) ||
                     voice.voiceId.contains(query, ignoreCase = true) ||
                     voice.labels.values.any { it.contains(query, ignoreCase = true) }
@@ -307,7 +314,10 @@ fun ElevenLabsVoicesScreen(
                 .padding(paddingValues)
                 .padding(horizontal = 16.dp)
         ) {
-            CatalogInfoCard(activeCount = activeVoices.size)
+            CatalogInfoCard(
+                assignableCount = assignableVoices.size,
+                savedCount = savedElevenLabsVoices.size
+            )
             Spacer(modifier = Modifier.height(12.dp))
             OutlinedTextField(
                 value = searchInput,
@@ -336,7 +346,7 @@ fun ElevenLabsVoicesScreen(
                 Tab(
                     selected = selectedTab == VoiceCatalogTab.ACTIVE,
                     onClick = { selectedTab = VoiceCatalogTab.ACTIVE },
-                    text = { Text("Active (${activeVoices.size})") }
+                    text = { Text("Active (${savedElevenLabsVoices.size})") }
                 )
             }
             Spacer(modifier = Modifier.height(8.dp))
@@ -406,7 +416,7 @@ fun ElevenLabsVoicesScreen(
                         if (filteredActiveVoices.isEmpty()) {
                             item(key = "empty-active") {
                                 EmptyContent(
-                                    if (activeVoices.isEmpty()) {
+                                    if (savedElevenLabsVoices.isEmpty()) {
                                         "No voices are active. Enable voices from the Available tab."
                                     } else {
                                         "No active voices match this search."
@@ -438,7 +448,10 @@ fun ElevenLabsVoicesScreen(
 }
 
 @Composable
-private fun CatalogInfoCard(activeCount: Int) {
+private fun CatalogInfoCard(
+    assignableCount: Int,
+    savedCount: Int
+) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -459,13 +472,15 @@ private fun CatalogInfoCard(activeCount: Int) {
             Spacer(modifier = Modifier.width(12.dp))
             Column {
                 Text(
-                    text = "$activeCount active voice${if (activeCount == 1) "" else "s"}",
+                    text = "$assignableCount assignable free API voice${if (assignableCount == 1) "" else "s"}",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold
                 )
                 Spacer(modifier = Modifier.height(3.dp))
                 Text(
-                    text = "Activate free-tier catalog voices to make them available for new character and narrator assignments. Existing assignments are kept when a voice is deactivated.",
+                    text = "The catalog contains only ElevenLabs Default voices available to the current API key. " +
+                        "$savedCount saved voice${if (savedCount == 1) "" else "s"} remain visible; " +
+                        "Voice Library entries require a paid API plan.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -493,11 +508,8 @@ private fun CatalogVoiceCard(
             voice.accent,
             voice.category
         ).distinct().joinToString(" | "),
-        sourceLabel = when (voice.source) {
-            ElevenLabsCatalogSource.DEFAULT -> "Default"
-            ElevenLabsCatalogSource.SHARED -> "Voice Library"
-        },
-        eligibilityLabel = "Free tier",
+        sourceLabel = "Default",
+        eligibilityLabel = "Free API",
         hasPreview = !voice.previewUrl.isNullOrBlank(),
         isPlaying = isPlaying,
         isUpdating = isUpdating,
@@ -520,6 +532,7 @@ private fun ActiveVoiceCard(
         ElevenLabsCatalogSource.SHARED.name -> "Voice Library"
         else -> "Saved voice"
     }
+    val isFreeApiCompatible = isFreeApiCompatibleElevenLabsVoice(voice)
     VoiceCardLayout(
         name = voice.name,
         voiceId = voice.voiceId,
@@ -531,11 +544,7 @@ private fun ActiveVoiceCard(
             voice.labels["category"]
         ).distinct().joinToString(" | "),
         sourceLabel = sourceLabel,
-        eligibilityLabel = if (voice.labels["free_users_allowed"] == "true") {
-            "Free tier"
-        } else {
-            "Saved voice"
-        },
+        eligibilityLabel = if (isFreeApiCompatible) "Free API" else "Paid/legacy",
         hasPreview = !voice.previewUrl.isNullOrBlank(),
         isPlaying = isPlaying,
         isUpdating = isUpdating,

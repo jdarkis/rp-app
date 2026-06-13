@@ -43,6 +43,8 @@ import com.example.rpapp3.data.MessageFilterMode
 import com.example.rpapp3.data.TTSPlaybackState
 import com.example.rpapp3.data.model.ChatMessage
 import com.example.rpapp3.data.model.Character
+import com.example.rpapp3.data.model.ModelRequestDetails
+import com.example.rpapp3.ui.components.ModelRequestDetailsDialog
 import com.example.rpapp3.viewmodel.ChatViewModel
 import kotlinx.coroutines.launch
 
@@ -201,6 +203,19 @@ fun ChatScreen(
     
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
+    var showRequestDetailsDialog by remember { mutableStateOf(false) }
+    var requestDetails by remember { mutableStateOf<ModelRequestDetails?>(null) }
+    var requestDetailsLoading by remember { mutableStateOf(false) }
+    var requestDetailsError by remember { mutableStateOf<String?>(null) }
+
+    if (showRequestDetailsDialog) {
+        ModelRequestDetailsDialog(
+            details = requestDetails,
+            isLoading = requestDetailsLoading,
+            errorMessage = requestDetailsError,
+            onDismiss = { showRequestDetailsDialog = false }
+        )
+    }
     val context = LocalContext.current
     
     // Track if this is the initial load (to skip scroll animation)
@@ -474,6 +489,22 @@ fun ChatScreen(
                             Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
                         },
                         onDelete = { viewModel.deleteMessage(message.id) },
+                        onDetails = if (message.isUser) {
+                            {
+                                showRequestDetailsDialog = true
+                                requestDetails = null
+                                requestDetailsError = null
+                                requestDetailsLoading = true
+                                coroutineScope.launch {
+                                    viewModel.getModelRequestDetails(message.id)
+                                        .onSuccess { requestDetails = it }
+                                        .onFailure {
+                                            requestDetailsError = it.message ?: "Failed to load request details."
+                                        }
+                                    requestDetailsLoading = false
+                                }
+                            }
+                        } else null,
                         onRegenerate = if (!message.isUser) {
                             { viewModel.regenerateResponse(message.id) }
                         } else null,
@@ -637,6 +668,7 @@ fun MessageBubble(
     provideChoicesEnabled: Boolean = true,
     onCopy: (String) -> Unit,
     onDelete: () -> Unit,
+    onDetails: (() -> Unit)? = null,
     onRegenerate: (() -> Unit)?,
     onCharacterClick: ((String) -> Unit)? = null,
     onChoiceSelected: ((String) -> Unit)? = null,
@@ -948,6 +980,19 @@ fun MessageBubble(
                             
                             // Delete and Regenerate only on last segment
                             if (isLastSegment) {
+                                if (isUser && onDetails != null) {
+                                    DropdownMenuItem(
+                                        text = { Text("Details") },
+                                        onClick = {
+                                            showMenuForSegment = null
+                                            onDetails()
+                                        },
+                                        leadingIcon = {
+                                            Icon(Icons.Default.Info, contentDescription = null)
+                                        }
+                                    )
+                                }
+
                                 DropdownMenuItem(
                                     text = { Text("Delete") },
                                     onClick = {

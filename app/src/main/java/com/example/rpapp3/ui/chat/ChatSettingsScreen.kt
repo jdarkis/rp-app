@@ -124,6 +124,9 @@ fun ChatSettingsScreen(
     // Unlock Prompt Setting
     val unlockPromptEnabled by chatSettingsManager.unlockPromptEnabled.collectAsState(initial = false)
 
+    // System Prompt Setting
+    val systemPromptEnabled by chatSettingsManager.systemPromptEnabled.collectAsState(initial = true)
+
     // Narrator Language Setting
     val narratorLanguage by chatSettingsManager.narratorLanguage.collectAsState(initial = "en")
     
@@ -1014,6 +1017,14 @@ fun ChatSettingsScreen(
                             onCheckedChange = { scope.launch { chatSettingsManager.setThinkingEnabled(it) } }
                         )
                     }
+
+                    // System Prompt Toggle
+                    SettingsToggle(
+                        title = "Enable System Prompt",
+                        description = "Include the global system prompt from app settings",
+                        checked = systemPromptEnabled,
+                        onCheckedChange = { scope.launch { chatSettingsManager.setSystemPromptEnabled(it) } }
+                    )
 
                     // Unlock Prompt Toggle
                     SettingsToggle(

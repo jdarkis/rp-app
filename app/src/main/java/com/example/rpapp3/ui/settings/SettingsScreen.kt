@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -28,6 +29,7 @@ fun SettingsScreen(
     onNavigateToBedrockApiKey: () -> Unit,
     onNavigateToElevenLabsApiKeys: () -> Unit,
     onNavigateToAppearance: () -> Unit,
+    onNavigateToSystemPrompt: () -> Unit,
     onNavigateToUnlockPrompt: () -> Unit,
     onNavigateToElevenLabsVoices: () -> Unit,
     onNavigateToInworldApiKeys: () -> Unit,
@@ -81,6 +83,13 @@ fun SettingsScreen(
                     onClick = onNavigateToAppearance
                 )
                 
+                SettingsCategoryItem(
+                    icon = Icons.Default.Code,
+                    title = "System Prompt",
+                    subtitle = "Edit the global roleplay instruction",
+                    onClick = onNavigateToSystemPrompt
+                )
+
                 SettingsCategoryItem(
                     icon = Icons.Default.LockOpen,
                     title = "Unlock Prompt",

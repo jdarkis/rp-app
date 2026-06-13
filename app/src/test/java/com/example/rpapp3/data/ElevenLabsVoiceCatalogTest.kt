@@ -13,48 +13,42 @@ import java.io.IOException
 class ElevenLabsVoiceCatalogTest {
 
     @Test
-    fun sharedCatalogIncludesOnlyVoicesAllowedForFreeUsers() {
-        val page = parseFreeTierVoicePage(
-            defaultVoicesJson = null,
-            sharedVoicesJson = """
-                {
-                  "voices": [
-                    {
-                      "voice_id": "free",
-                      "name": "Free Voice",
-                      "free_users_allowed": true,
-                      "language": "en",
-                      "gender": "female"
-                    },
-                    {
-                      "voice_id": "paid",
-                      "name": "Paid Voice",
-                      "free_users_allowed": false
-                    },
-                    {
-                      "voice_id": "unknown",
-                      "name": "Unknown Voice"
-                    }
-                  ],
-                  "has_more": false
-                }
-            """.trimIndent(),
-            page = 0
-        )
-
-        assertEquals(listOf("free"), page.voices.map { it.voiceId })
-        assertEquals(ElevenLabsCatalogSource.SHARED, page.voices.single().source)
-    }
-
-    @Test
-    fun defaultAndSharedVoicesAreMergedAndDeduplicatedByVoiceId() {
+    fun catalogContainsOnlyDefaultVoicesAvailableToFreeTier() {
         val page = parseFreeTierVoicePage(
             defaultVoicesJson = """
                 {
                   "voices": [
                     {
-                      "voice_id": "same",
-                      "name": "Default Name",
+                      "voice_id": "free-default",
+                      "name": "Free Default",
+                      "category": "premade",
+                      "available_for_tiers": ["free", "starter"]
+                    },
+                    {
+                      "voice_id": "paid-default",
+                      "name": "Paid Default",
+                      "available_for_tiers": ["creator", "pro"]
+                    }
+                  ]
+                }
+            """.trimIndent(),
+            page = 0
+        )
+
+        assertEquals(listOf("free-default"), page.voices.map { it.voiceId })
+        assertEquals(ElevenLabsCatalogSource.DEFAULT, page.voices.single().source)
+        assertFalse(page.hasMore)
+    }
+
+    @Test
+    fun defaultVoicesWithoutTierMetadataAreAcceptedFromAuthenticatedUserList() {
+        val page = parseFreeTierVoicePage(
+            defaultVoicesJson = """
+                {
+                  "voices": [
+                    {
+                      "voice_id": "default",
+                      "name": "Default Voice",
                       "preview_url": "https://example.com/default.mp3",
                       "category": "premade",
                       "labels": {
@@ -68,42 +62,39 @@ class ElevenLabsVoiceCatalogTest {
                   ]
                 }
             """.trimIndent(),
-            sharedVoicesJson = """
-                {
-                  "voices": [
-                    {
-                      "voice_id": "same",
-                      "name": "Shared Duplicate",
-                      "free_users_allowed": true
-                    },
-                    {
-                      "voice_id": "shared",
-                      "name": "Shared Voice",
-                      "free_users_allowed": true
-                    }
-                  ],
-                  "has_more": true
-                }
-            """.trimIndent(),
-            page = 2
+            page = 0
         )
 
-        assertEquals(listOf("same", "shared"), page.voices.map { it.voiceId })
-        assertEquals("Default Name", page.voices.first().name)
-        assertEquals(ElevenLabsCatalogSource.DEFAULT, page.voices.first().source)
-        assertEquals(2, page.page)
-        assertTrue(page.hasMore)
+        val voice = page.voices.single()
+        assertEquals("default", voice.voiceId)
+        assertEquals("en", voice.language)
+        assertEquals("female", voice.gender)
+        assertEquals("american", voice.accent)
     }
 
     @Test
-    fun catalogPathsCarryPaginationAndEncodedSearch() {
+    fun duplicateDefaultVoiceIdsAreDeduplicated() {
+        val page = parseFreeTierVoicePage(
+            defaultVoicesJson = """
+                {
+                  "voices": [
+                    {"voice_id": "same", "name": "First"},
+                    {"voice_id": "same", "name": "Second"}
+                  ]
+                }
+            """.trimIndent(),
+            page = 0
+        )
+
+        assertEquals(1, page.voices.size)
+        assertEquals("First", page.voices.single().name)
+    }
+
+    @Test
+    fun catalogPathRequestsDefaultVoicesWithEncodedSearch() {
         assertEquals(
             "/v2/voices?page_size=100&voice_type=default&search=Mature+Voice",
             buildDefaultVoicesPath(" Mature Voice ")
-        )
-        assertEquals(
-            "/v1/shared-voices?page_size=100&page=3&search=Mature+Voice",
-            buildSharedVoicesPath(3, "Mature Voice")
         )
     }
 
@@ -111,15 +102,13 @@ class ElevenLabsVoiceCatalogTest {
     fun malformedResponsesAreRejected() {
         assertThrows(IllegalArgumentException::class.java) {
             parseFreeTierVoicePage(
-                defaultVoicesJson = null,
-                sharedVoicesJson = "not-json",
+                defaultVoicesJson = "not-json",
                 page = 0
             )
         }
         assertThrows(IllegalArgumentException::class.java) {
             parseFreeTierVoicePage(
-                defaultVoicesJson = null,
-                sharedVoicesJson = """{"has_more": false}""",
+                defaultVoicesJson = """{"has_more": false}""",
                 page = 0
             )
         }
@@ -128,18 +117,15 @@ class ElevenLabsVoiceCatalogTest {
     @Test
     fun missingPreviewIsPreservedAsUnavailable() {
         val page = parseFreeTierVoicePage(
-            defaultVoicesJson = null,
-            sharedVoicesJson = """
+            defaultVoicesJson = """
                 {
                   "voices": [
                     {
                       "voice_id": "no-preview",
                       "name": "No Preview",
-                      "preview_url": null,
-                      "free_users_allowed": true
+                      "preview_url": null
                     }
-                  ],
-                  "has_more": false
+                  ]
                 }
             """.trimIndent(),
             page = 0
@@ -161,19 +147,32 @@ class ElevenLabsVoiceCatalogTest {
     }
 
     @Test
-    fun activatedCatalogVoiceBecomesSelectableAndDeactivationOnlyRemovesItFromList() {
-        val catalogVoice = ElevenLabsCatalogVoice(
-            voiceId = "catalog-id",
-            name = "Catalog Voice",
+    fun onlyActivatedDefaultCatalogVoicesAreSelectable() {
+        val defaultVoice = ElevenLabsCatalogVoice(
+            voiceId = "default-id",
+            name = "Default Voice",
             previewUrl = "https://example.com/preview.mp3",
             description = "Warm and clear",
             language = "en",
             gender = "female",
             accent = "british",
-            category = "professional",
-            source = ElevenLabsCatalogSource.SHARED
+            category = "premade",
+            source = ElevenLabsCatalogSource.DEFAULT
+        ).toVoice()
+        val libraryVoice = Voice(
+            voiceId = "library-id",
+            name = "Library Voice",
+            labels = mapOf(
+                "catalog_source" to ElevenLabsCatalogSource.SHARED.name,
+                "free_users_allowed" to "true"
+            ),
+            source = VoiceSource.ELEVEN_LABS
         )
-        val activatedVoice = catalogVoice.toVoice()
+        val legacyVoice = Voice(
+            voiceId = "legacy-id",
+            name = "Legacy Voice",
+            source = VoiceSource.ELEVEN_LABS
+        )
         val inworldVoice = Voice(
             voiceId = "inworld-id",
             name = "Inworld Voice",
@@ -181,11 +180,26 @@ class ElevenLabsVoiceCatalogTest {
         )
 
         assertEquals(
-            listOf(activatedVoice),
-            selectableElevenLabsVoices(listOf(activatedVoice, inworldVoice))
+            listOf(defaultVoice),
+            selectableElevenLabsVoices(
+                listOf(defaultVoice, libraryVoice, legacyVoice, inworldVoice)
+            )
         )
-        assertEquals("true", activatedVoice.labels["free_users_allowed"])
-        assertEquals("SHARED", activatedVoice.labels["catalog_source"])
-        assertTrue(selectableElevenLabsVoices(listOf(inworldVoice)).isEmpty())
+        assertEquals("true", defaultVoice.labels["free_api_compatible"])
+        assertEquals("DEFAULT", defaultVoice.labels["catalog_source"])
+    }
+
+    @Test
+    fun paidPlanLibraryErrorHasActionableMessage() {
+        val message = elevenLabsTtsFailureMessage(
+            """
+                {"detail":{"type":"payment_required","code":"paid_plan_required",
+                "message":"Free users cannot use library voices via the API."}}
+            """.trimIndent()
+        )
+
+        assertTrue(message.contains("requires a paid plan"))
+        assertTrue(message.contains("Default voice"))
+        assertFalse(message.contains("{\"detail\""))
     }
 }

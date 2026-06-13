@@ -14,7 +14,9 @@ import com.example.rpapp3.data.BedrockApiKeyManager
 import com.example.rpapp3.data.BedrockConverseRequest
 import com.example.rpapp3.data.BedrockGenerationException
 import com.example.rpapp3.data.BedrockService
+import com.example.rpapp3.data.buildBedrockRequestDetails
 import com.example.rpapp3.data.buildBedrockMessages
+import com.example.rpapp3.data.buildGeminiRequestDetails
 import com.example.rpapp3.data.ChatSettings
 import com.example.rpapp3.data.ChatSettingsManager
 import com.example.rpapp3.data.ElevenLabsService
@@ -33,6 +35,8 @@ import com.example.rpapp3.data.SummaryResult
 import com.example.rpapp3.data.model.Character
 import com.example.rpapp3.data.model.Chat
 import com.example.rpapp3.data.model.ChatMessage
+import com.example.rpapp3.data.model.ModelRequestDetails
+import com.example.rpapp3.data.model.ModelRequestStatus
 import com.example.rpapp3.data.model.SegmentAudioCache
 import com.example.rpapp3.data.model.SummaryProposal
 import com.example.rpapp3.data.model.World
@@ -385,8 +389,19 @@ class ChatViewModel : ViewModel() {
             ""
         }
 
+        val globalSystemPrompt = if (currentSettings.systemPromptEnabled) {
+            settingsRepository.getSystemPromptOnce()
+        } else {
+            ""
+        }
+
         // Build system instructions from world and characters
-        val baseSystemInstructions = buildSystemInstructions(world, characters, unlockPrompt)
+        val baseSystemInstructions = buildSystemInstructions(
+            world = world,
+            characters = characters,
+            unlockPrompt = unlockPrompt,
+            globalSystemPrompt = globalSystemPrompt
+        )
         
         // Add explicit instructions to avoid external tools for Pro models to mitigate quota issues
         val extraInstructions = if (currentSettings.aiModelId.contains("pro", ignoreCase = true)) {
@@ -465,7 +480,12 @@ class ChatViewModel : ViewModel() {
         }
     }
 
-    private fun buildSystemInstructions(world: World?, characters: List<Character>, unlockPrompt: String = ""): String {
+    private fun buildSystemInstructions(
+        world: World?,
+        characters: List<Character>,
+        unlockPrompt: String = "",
+        globalSystemPrompt: String = ""
+    ): String {
         return buildString {
             // Prepend unlock prompt at the very top if enabled
             if (unlockPrompt.isNotBlank()) {
@@ -474,8 +494,10 @@ class ChatViewModel : ViewModel() {
                 appendLine()
             }
             
-            appendLine("You are a roleplay AI assistant. You will be playing one or more characters in a collaborative story.")
-            appendLine()
+            if (globalSystemPrompt.isNotBlank()) {
+                appendLine(globalSystemPrompt)
+                appendLine()
+            }
             
             if (world != null) {
                 appendLine("=== WORLD SETTING ===")
@@ -665,11 +687,13 @@ class ChatViewModel : ViewModel() {
         userChatMessage: ChatMessage,
         chatId: String, 
         keyAttemptNumber: Int = 0,
-        rateLimitRetries: Int = 0
+        rateLimitRetries: Int = 0,
+        requestDetailsRecorded: Boolean = false
     ) {
         val userMessage = userChatMessage.text
         currentSettings = chatSettingsManager?.getCurrentSettings() ?: ChatSettings()
         currentAiProvider = ChatSettingsManager.aiProviderFor(currentSettings.aiModelId)
+        var detailsRecorded = requestDetailsRecorded
 
         // Get total number of available keys
         val totalKeys = if (currentAiProvider == AiProvider.GEMINI) {
@@ -704,6 +728,15 @@ class ChatViewModel : ViewModel() {
                 } else {
                     "Failed to initialize AI. Check your API key in Settings."
                 }
+                if (!detailsRecorded) {
+                    saveRequestDetails(
+                        userMessage = userChatMessage,
+                        chatId = chatId,
+                        status = ModelRequestStatus.NOT_SENT,
+                        failureReason = setupError
+                    )
+                    detailsRecorded = true
+                }
                 _error.value = setupError
                 
                 val errorChatMessage = ChatMessage(
@@ -722,14 +755,25 @@ class ChatViewModel : ViewModel() {
                 if (apiKey.isNullOrBlank()) {
                     throw BedrockGenerationException("No Bedrock API key configured. Please add one in Settings.")
                 }
+                val bedrockRequest = BedrockConverseRequest(
+                    modelId = currentSettings.aiModelId,
+                    systemPrompt = _systemPrompt.value.orEmpty(),
+                    messages = buildBedrockMessages(_fullMessageHistory, userChatMessage),
+                    settings = currentSettings
+                )
+                if (!detailsRecorded) {
+                    persistRequestDetails(
+                        buildBedrockRequestDetails(
+                            chatId = chatId,
+                            userMessage = userChatMessage,
+                            request = bedrockRequest
+                        )
+                    )
+                    detailsRecorded = true
+                }
                 val responseText = bedrockService?.converseWithRetry(
                     apiKey = apiKey,
-                    request = BedrockConverseRequest(
-                        modelId = currentSettings.aiModelId,
-                        systemPrompt = _systemPrompt.value.orEmpty(),
-                        messages = buildBedrockMessages(_fullMessageHistory, userChatMessage),
-                        settings = currentSettings
-                    )
+                    request = bedrockRequest
                 )?.text
 
                 if (responseText.isNullOrBlank()) {
@@ -756,6 +800,19 @@ class ChatViewModel : ViewModel() {
 
                 _isLoading.value = false
                 return
+            }
+
+            if (!detailsRecorded) {
+                persistRequestDetails(
+                    buildGeminiRequestDetails(
+                        chatId = chatId,
+                        userMessage = userChatMessage,
+                        history = modelHistory(userChatMessage.id),
+                        systemPrompt = _systemPrompt.value.orEmpty(),
+                        settings = currentSettings
+                    )
+                )
+                detailsRecorded = true
             }
             
             // Check if streaming is enabled
@@ -860,6 +917,15 @@ class ChatViewModel : ViewModel() {
                     append(" Caused by: ${cause.localizedMessage ?: cause.message}")
                 }
             }
+            if (!detailsRecorded) {
+                saveRequestDetails(
+                    userMessage = userChatMessage,
+                    chatId = chatId,
+                    status = ModelRequestStatus.NOT_SENT,
+                    failureReason = errorMessage
+                )
+                detailsRecorded = true
+            }
 
             if (currentAiProvider == AiProvider.BEDROCK) {
                 val bedrockErrorMessage = BedrockService.userFacingErrorMessage(e)
@@ -883,7 +949,13 @@ class ChatViewModel : ViewModel() {
                     delay(delayMs)
                     
                     // Retry with same key
-                    sendMessageWithRetry(userChatMessage, chatId, keyAttemptNumber, rateLimitRetries + 1)
+                    sendMessageWithRetry(
+                        userChatMessage,
+                        chatId,
+                        keyAttemptNumber,
+                        rateLimitRetries + 1,
+                        detailsRecorded
+                    )
                     return
                 }
                 // Max rate limit retries reached, try next key
@@ -905,7 +977,13 @@ class ChatViewModel : ViewModel() {
                     delay(500L)
                     
                     // Retry with new key, reset rate limit counter
-                    sendMessageWithRetry(userChatMessage, chatId, keyAttemptNumber + 1, 0)
+                    sendMessageWithRetry(
+                        userChatMessage,
+                        chatId,
+                        keyAttemptNumber + 1,
+                        0,
+                        detailsRecorded
+                    )
                     return
                 } else {
                     // All keys exhausted
@@ -1020,6 +1098,51 @@ class ChatViewModel : ViewModel() {
             _fullMessageHistory.removeAll(messagesToDelete.toSet())
             sendMessageWithRetry(lastUserMessage, chatId)
         }
+    }
+
+    private suspend fun saveRequestDetails(
+        userMessage: ChatMessage,
+        chatId: String,
+        status: ModelRequestStatus,
+        failureReason: String
+    ) {
+        val details = when (currentAiProvider) {
+            AiProvider.GEMINI -> buildGeminiRequestDetails(
+                chatId = chatId,
+                userMessage = userMessage,
+                history = modelHistory(userMessage.id),
+                systemPrompt = _systemPrompt.value.orEmpty(),
+                settings = currentSettings,
+                status = status,
+                failureReason = failureReason
+            )
+            AiProvider.BEDROCK -> buildBedrockRequestDetails(
+                chatId = chatId,
+                userMessage = userMessage,
+                request = BedrockConverseRequest(
+                    modelId = currentSettings.aiModelId,
+                    systemPrompt = _systemPrompt.value.orEmpty(),
+                    messages = buildBedrockMessages(_fullMessageHistory, userMessage),
+                    settings = currentSettings
+                ),
+                status = status,
+                failureReason = failureReason
+            )
+        }
+        persistRequestDetails(details)
+    }
+
+    private suspend fun persistRequestDetails(details: ModelRequestDetails) {
+        chatRepository.saveModelRequestDetails(details)
+            .onFailure { error ->
+                Log.w("ChatViewModel", "Failed to save model request details", error)
+            }
+    }
+
+    suspend fun getModelRequestDetails(messageId: String): Result<ModelRequestDetails?> {
+        val chatId = _currentChat.value?.id
+            ?: return Result.failure(IllegalStateException("Chat is not loaded"))
+        return chatRepository.getModelRequestDetails(chatId, messageId)
     }
     
     fun deleteChat(chatId: String, onSuccess: () -> Unit, onError: (String) -> Unit) {

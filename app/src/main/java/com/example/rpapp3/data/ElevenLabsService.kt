@@ -125,16 +125,19 @@ class ElevenLabsService(private val context: Context) {
     ): Result<ElevenLabsVoicePage> = withContext(Dispatchers.IO) {
         try {
             require(page >= 0) { "Page must not be negative" }
-            val defaultVoicesJson = if (page == 0) {
-                makeCatalogRequest(buildDefaultVoicesPath(search))
-            } else {
-                null
+            if (page > 0) {
+                return@withContext Result.success(
+                    ElevenLabsVoicePage(
+                        voices = emptyList(),
+                        page = page,
+                        hasMore = false
+                    )
+                )
             }
-            val sharedVoicesJson = makeCatalogRequest(buildSharedVoicesPath(page, search))
+            val defaultVoicesJson = makeCatalogRequest(buildDefaultVoicesPath(search))
             Result.success(
                 parseFreeTierVoicePage(
                     defaultVoicesJson = defaultVoicesJson,
-                    sharedVoicesJson = sharedVoicesJson,
                     page = page
                 )
             )
@@ -197,7 +200,7 @@ class ElevenLabsService(private val context: Context) {
                     return textToSpeechWithRetry(text, voiceId, modelId, keyAttemptNumber + 1)
                 }
                 
-                return Result.failure(Exception("TTS request failed: $errorBody"))
+                return Result.failure(Exception(elevenLabsTtsFailureMessage(errorBody)))
             }
             
             val audioData = connection.inputStream.readBytes()
@@ -264,6 +267,18 @@ class ElevenLabsService(private val context: Context) {
         }
     }
     
+}
+
+internal fun elevenLabsTtsFailureMessage(errorBody: String): String {
+    return if (
+        errorBody.contains("\"code\":\"paid_plan_required\"") ||
+        errorBody.contains("Free users cannot use library voices via the API")
+    ) {
+        "This ElevenLabs Voice Library voice requires a paid plan for API use. " +
+            "Choose an activated Default voice in Settings > ElevenLabs Voices."
+    } else {
+        "TTS request failed: $errorBody"
+    }
 }
 
 internal fun buildElevenLabsRequestBody(text: String, modelId: String): String {
