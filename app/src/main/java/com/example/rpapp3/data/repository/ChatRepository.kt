@@ -4,6 +4,8 @@ import com.example.rpapp3.data.ChatSettings
 
 import com.example.rpapp3.data.model.Chat
 import com.example.rpapp3.data.model.ChatMessage
+import com.example.rpapp3.data.model.ChatUsageRecord
+import com.example.rpapp3.data.model.ChatUsageSummary
 import com.example.rpapp3.data.model.ModelRequestDetails
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
@@ -116,6 +118,33 @@ class ChatRepository {
             chatsCollection.document(chatId)
                 .update("settings", settings.toMap())
                 .await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun recordChatUsage(record: ChatUsageRecord): Result<Unit> {
+        return try {
+            val chatDocument = chatsCollection.document(record.chatId)
+            val usageDocument = chatDocument
+                .collection("usage_records")
+                .document(record.id)
+
+            firestore.runTransaction { transaction ->
+                val existingUsage = transaction.get(usageDocument)
+                if (!existingUsage.exists()) {
+                    val chatSnapshot = transaction.get(chatDocument)
+                    check(chatSnapshot.exists()) { "Chat not found" }
+                    val currentSummary = ChatUsageSummary.fromMap(chatSnapshot.get("usage"))
+                    transaction.set(usageDocument, record.toMap())
+                    transaction.update(
+                        chatDocument,
+                        "usage",
+                        currentSummary.plus(record).toMap()
+                    )
+                }
+            }.await()
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
@@ -426,12 +455,19 @@ class ChatRepository {
                 .collection("request_details")
                 .get()
                 .await()
+            val usageDocuments = chatDocument
+                .collection("usage_records")
+                .get()
+                .await()
             
             val batch = firestore.batch()
             messageDocuments.documents.forEach { doc ->
                 batch.delete(doc.reference)
             }
             requestDetailDocuments.documents.forEach { doc ->
+                batch.delete(doc.reference)
+            }
+            usageDocuments.documents.forEach { doc ->
                 batch.delete(doc.reference)
             }
             batch.commit().await()
@@ -474,7 +510,8 @@ class ChatRepository {
                 id = newDocRef.id,
                 title = "${originalChat.title} (Copy)",
                 createdAt = System.currentTimeMillis(),
-                updatedAt = System.currentTimeMillis()
+                updatedAt = System.currentTimeMillis(),
+                usage = ChatUsageSummary()
             )
             newDocRef.set(newChat.toMap()).await()
             

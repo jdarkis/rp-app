@@ -7,6 +7,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -164,13 +165,29 @@ class BedrockServiceTest {
                       "role": "assistant"
                     }
                   },
-                  "stopReason": "end_turn"
+                  "stopReason": "end_turn",
+                  "usage": {
+                    "inputTokens": 125,
+                    "outputTokens": 42
+                  }
                 }
             """.trimIndent()
         )
 
         assertEquals("Hello there", result.text)
         assertEquals("end_turn", result.stopReason)
+        assertEquals(125L, result.inputTokens)
+        assertEquals(42L, result.outputTokens)
+    }
+
+    @Test
+    fun responseParserAllowsMissingUsageMetadata() {
+        val result = parseBedrockConverseResponse(
+            """{"output":{"message":{"content":[{"text":"Hello"}]}},"stopReason":"end_turn"}"""
+        )
+
+        assertNull(result.inputTokens)
+        assertNull(result.outputTokens)
     }
 
     @Test

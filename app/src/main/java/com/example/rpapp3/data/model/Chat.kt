@@ -17,7 +17,9 @@ data class Chat(
     // Writing style instructions for private chats (stored in Firebase)
     val writingStyle: String = "",
     // Normal chat settings. Private chats keep using their existing settings path.
-    val settings: ChatSettings = ChatSettings()
+    val settings: ChatSettings = ChatSettings(),
+    // Aggregate of successful roleplay model calls tracked after this feature was added.
+    val usage: ChatUsageSummary = ChatUsageSummary()
 ) {
     // No-arg constructor for Firestore
     constructor() : this("")
@@ -33,7 +35,8 @@ data class Chat(
         "privateCharacterId" to privateCharacterId,
         "contextChatIds" to contextChatIds,
         "writingStyle" to writingStyle,
-        "settings" to settings.toMap()
+        "settings" to settings.toMap(),
+        "usage" to usage.toMap()
     )
     
     companion object {
@@ -50,7 +53,8 @@ data class Chat(
                 privateCharacterId = map["privateCharacterId"] as? String,
                 contextChatIds = (map["contextChatIds"] as? List<String>) ?: emptyList(),
                 writingStyle = map["writingStyle"] as? String ?: "",
-                settings = ChatSettings.fromMap(map["settings"].asStringKeyMap())
+                settings = ChatSettings.fromMap(map["settings"].asStringKeyMap()),
+                usage = ChatUsageSummary.fromMap(map["usage"])
             )
         }
 

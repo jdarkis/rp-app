@@ -43,7 +43,9 @@ data class BedrockConverseRequest(
 
 data class BedrockConverseResult(
     val text: String,
-    val stopReason: String
+    val stopReason: String,
+    val inputTokens: Long?,
+    val outputTokens: Long?
 )
 
 internal data class BedrockGenerationParameters(
@@ -369,6 +371,19 @@ internal fun buildBedrockMessages(
 internal fun parseBedrockConverseResponse(responseBody: String): BedrockConverseResult {
     val json = Json.parseToJsonElement(responseBody).jsonObject
     val stopReason = json["stopReason"]?.jsonPrimitive?.contentOrNull.orEmpty()
+    val usage = json["usage"] as? JsonObject
+    val inputTokens = usage
+        ?.get("inputTokens")
+        ?.jsonPrimitive
+        ?.contentOrNull
+        ?.toLongOrNull()
+        ?.coerceAtLeast(0)
+    val outputTokens = usage
+        ?.get("outputTokens")
+        ?.jsonPrimitive
+        ?.contentOrNull
+        ?.toLongOrNull()
+        ?.coerceAtLeast(0)
 
     when (stopReason) {
         "content_filtered" -> throw BedrockGenerationException("Bedrock filtered the response.")
@@ -398,6 +413,8 @@ internal fun parseBedrockConverseResponse(responseBody: String): BedrockConverse
 
     return BedrockConverseResult(
         text = text,
-        stopReason = stopReason
+        stopReason = stopReason,
+        inputTokens = inputTokens,
+        outputTokens = outputTokens
     )
 }

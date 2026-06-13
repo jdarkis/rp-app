@@ -1,6 +1,7 @@
 package com.example.rpapp3.data
 
 import com.example.rpapp3.data.model.Chat
+import com.example.rpapp3.data.model.ChatUsageSummary
 import com.example.rpapp3.data.repository.SummarizerPrompts
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -161,13 +162,19 @@ class ChatSettingsPersistenceTest {
             settings = ChatSettings(
                 temperature = 0.2f,
                 ttsEnabled = true
-            )
+            ),
+            usage = ChatUsageSummary(inputTokens = 500, outputTokens = 250)
         )
-        val duplicate = source.copy(id = "duplicate", title = "Copy")
+        val duplicate = source.copy(
+            id = "duplicate",
+            title = "Copy",
+            usage = ChatUsageSummary()
+        )
         val newChat = Chat(id = "new")
         val extendedChat = Chat(id = "extended")
 
         assertEquals(source.settings, duplicate.settings)
+        assertEquals(ChatUsageSummary(), duplicate.usage)
         assertEquals(ChatSettings(), newChat.settings)
         assertEquals(ChatSettings(), extendedChat.settings)
         assertEquals(ChatSettings(), source.copy(settings = ChatSettings()).settings)

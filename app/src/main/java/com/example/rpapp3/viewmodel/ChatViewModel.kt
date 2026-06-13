@@ -35,11 +35,15 @@ import com.example.rpapp3.data.SummaryResult
 import com.example.rpapp3.data.model.Character
 import com.example.rpapp3.data.model.Chat
 import com.example.rpapp3.data.model.ChatMessage
+import com.example.rpapp3.data.model.ChatUsageRecord
+import com.example.rpapp3.data.model.ChatUsageSummary
 import com.example.rpapp3.data.model.ModelRequestDetails
 import com.example.rpapp3.data.model.ModelRequestStatus
+import com.example.rpapp3.data.model.ProviderTokenUsage
 import com.example.rpapp3.data.model.SegmentAudioCache
 import com.example.rpapp3.data.model.SummaryProposal
 import com.example.rpapp3.data.model.World
+import com.example.rpapp3.data.model.geminiTokenUsage
 import com.example.rpapp3.ui.chat.SelectedUpdates
 import com.example.rpapp3.data.repository.CharacterRepository
 import com.example.rpapp3.data.repository.ChatRepository
@@ -111,6 +115,8 @@ class ChatViewModel : ViewModel() {
 
     private val _chatSettings = MutableStateFlow(ChatSettings())
     val chatSettings: StateFlow<ChatSettings> = _chatSettings
+    private val _chatUsage = MutableStateFlow(ChatUsageSummary())
+    val chatUsage: StateFlow<ChatUsageSummary> = _chatUsage
     private val settingsUpdates = Channel<ChatSettingsUpdate>(Channel.UNLIMITED)
     private var latestPendingSettings: ChatSettingsUpdate? = null
     private var chatObservationJob: Job? = null
@@ -143,6 +149,7 @@ class ChatViewModel : ViewModel() {
                                 if (_currentChat.value?.id == persistedChat.id) {
                                     _currentChat.value = persistedChat
                                     _chatSettings.value = persistedChat.settings
+                                    _chatUsage.value = persistedChat.usage
                                 }
                             }
                         }
@@ -301,12 +308,14 @@ class ChatViewModel : ViewModel() {
             // Load chat and its independent settings.
             _currentChat.value = chatRepository.getChat(chatId)
             _chatSettings.value = _currentChat.value?.settings ?: ChatSettings()
+            _chatUsage.value = _currentChat.value?.usage ?: ChatUsageSummary()
             chatObservationJob?.cancel()
             chatObservationJob = viewModelScope.launch {
                 chatRepository.observeChat(chatId)
                     .catch { e -> _error.value = e.message }
                     .collect { observedChat ->
                         if (observedChat != null) {
+                            _chatUsage.value = observedChat.usage
                             val pending = latestPendingSettings
                                 ?.takeIf { it.chatId == observedChat.id }
                             if (pending == null || pending.settings == observedChat.settings) {
@@ -729,7 +738,8 @@ class ChatViewModel : ViewModel() {
         chatId: String, 
         keyAttemptNumber: Int = 0,
         rateLimitRetries: Int = 0,
-        requestDetailsRecorded: Boolean = false
+        requestDetailsRecorded: Boolean = false,
+        usageRecordId: String = java.util.UUID.randomUUID().toString()
     ) {
         val userMessage = userChatMessage.text
         currentSettings = _chatSettings.value.effectiveForSelectedProvider()
@@ -812,10 +822,11 @@ class ChatViewModel : ViewModel() {
                     )
                     detailsRecorded = true
                 }
-                val responseText = bedrockService?.converseWithRetry(
+                val bedrockResult = bedrockService?.converseWithRetry(
                     apiKey = apiKey,
                     request = bedrockRequest
-                )?.text
+                )
+                val responseText = bedrockResult?.text
 
                 if (responseText.isNullOrBlank()) {
                     _error.value = "AI returned an empty response. Please try again."
@@ -830,6 +841,16 @@ class ChatViewModel : ViewModel() {
                     _isLoading.value = false
                     return
                 }
+
+                persistChatUsage(
+                    usageRecordId = usageRecordId,
+                    chatId = chatId,
+                    messageId = userChatMessage.id,
+                    usage = ProviderTokenUsage(
+                        inputTokens = bedrockResult?.inputTokens,
+                        outputTokens = bedrockResult?.outputTokens
+                    )
+                )
 
                 val parsedMessages = parseResponseIntoMessages(responseText, chatId)
 
@@ -888,9 +909,17 @@ class ChatViewModel : ViewModel() {
                 }
                 
                 val fullResponse = StringBuilder()
+                var tokenUsage: ProviderTokenUsage? = null
                 
                 responseFlow.collect { chunk ->
-                    chunk.text?.let { text ->
+                    chunk.usageMetadata?.let { metadata ->
+                        tokenUsage = geminiTokenUsage(
+                            promptTokenCount = metadata.promptTokenCount,
+                            candidatesTokenCount = metadata.candidatesTokenCount,
+                            totalTokenCount = metadata.totalTokenCount
+                        )
+                    }
+                    runCatching { chunk.text }.getOrNull()?.let { text ->
                         fullResponse.append(text)
                         // Update the message in place for streaming effect
                         _messages[messageIndex] = streamingAiMessage.copy(text = fullResponse.toString())
@@ -913,7 +942,14 @@ class ChatViewModel : ViewModel() {
                     _isLoading.value = false
                     return
                 }
-                
+
+                persistChatUsage(
+                    usageRecordId = usageRecordId,
+                    chatId = chatId,
+                    messageId = userChatMessage.id,
+                    usage = tokenUsage
+                )
+
                 // Save final message to Firestore and add to full history
                 val finalMessage = _messages[messageIndex]
                 _fullMessageHistory.add(finalMessage)
@@ -936,7 +972,21 @@ class ChatViewModel : ViewModel() {
                     _isLoading.value = false
                     return
                 }
-                
+
+                val tokenUsage = response?.usageMetadata?.let { metadata ->
+                    geminiTokenUsage(
+                        promptTokenCount = metadata.promptTokenCount,
+                        candidatesTokenCount = metadata.candidatesTokenCount,
+                        totalTokenCount = metadata.totalTokenCount
+                    )
+                }
+                persistChatUsage(
+                    usageRecordId = usageRecordId,
+                    chatId = chatId,
+                    messageId = userChatMessage.id,
+                    usage = tokenUsage
+                )
+
                 // Parse the response to create separate messages for narrator and characters
                 val parsedMessages = parseResponseIntoMessages(responseText, chatId)
                 
@@ -995,7 +1045,8 @@ class ChatViewModel : ViewModel() {
                         chatId,
                         keyAttemptNumber,
                         rateLimitRetries + 1,
-                        detailsRecorded
+                        detailsRecorded,
+                        usageRecordId
                     )
                     return
                 }
@@ -1023,7 +1074,8 @@ class ChatViewModel : ViewModel() {
                         chatId,
                         keyAttemptNumber + 1,
                         0,
-                        detailsRecorded
+                        detailsRecorded,
+                        usageRecordId
                     )
                     return
                 } else {
@@ -1177,6 +1229,27 @@ class ChatViewModel : ViewModel() {
         chatRepository.saveModelRequestDetails(details)
             .onFailure { error ->
                 Log.w("ChatViewModel", "Failed to save model request details", error)
+            }
+    }
+
+    private suspend fun persistChatUsage(
+        usageRecordId: String,
+        chatId: String,
+        messageId: String,
+        usage: ProviderTokenUsage?
+    ) {
+        val record = ChatUsageRecord.create(
+            id = usageRecordId,
+            chatId = chatId,
+            messageId = messageId,
+            provider = currentAiProvider.name,
+            modelId = currentSettings.aiModelId,
+            inputTokens = usage?.inputTokens,
+            outputTokens = usage?.outputTokens
+        )
+        chatRepository.recordChatUsage(record)
+            .onFailure { error ->
+                Log.w("ChatViewModel", "Failed to save chat token usage", error)
             }
     }
 

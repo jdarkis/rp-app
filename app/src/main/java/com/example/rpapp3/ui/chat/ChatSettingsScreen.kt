@@ -50,8 +50,12 @@ import com.example.rpapp3.data.repository.VoiceRepository
 import com.example.rpapp3.data.InworldService
 import com.example.rpapp3.data.selectableElevenLabsVoices
 import com.example.rpapp3.data.model.InworldTTSModels
+import com.example.rpapp3.data.model.ChatUsagePricing
+import com.example.rpapp3.data.model.ChatUsageSummary
 import com.example.rpapp3.data.model.VoiceSource
 import kotlinx.coroutines.launch
+import java.text.NumberFormat
+import java.util.Locale
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -75,6 +79,7 @@ fun ChatSettingsScreen(
     val systemPrompt by chatViewModel.systemPrompt.collectAsState()
     
     val settings by chatViewModel.chatSettings.collectAsState()
+    val chatUsage by chatViewModel.chatUsage.collectAsState()
     val filterMode = settings.filterMode
     val customDelimiters = settings.customDelimiters
     val paragraphCount = settings.paragraphCount
@@ -1643,7 +1648,12 @@ fun ChatSettingsScreen(
                     }
                 }
                 
-                
+                Spacer(modifier = Modifier.height(16.dp))
+
+                ChatUsageCard(chatUsage)
+
+                Spacer(modifier = Modifier.height(16.dp))
+
                 // Restore to Defaults Button
                 var showRestoreConfirmDialog by remember { mutableStateOf(false) }
                 
@@ -1689,6 +1699,139 @@ fun ChatSettingsScreen(
             }
         }
     }
+}
+
+@Composable
+private fun ChatUsageCard(usage: ChatUsageSummary) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f)
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Info,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.padding(end = 12.dp)
+                )
+                Text(
+                    text = "Chat Usage",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Text(
+                text = "Tracked since this app update. Prices are estimates based on standard paid API rates.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
+            )
+
+            ChatUsageMetric(
+                label = "Input tokens",
+                tokenCount = usage.inputTokens,
+                costNanodollars = usage.inputCostNanodollars
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+            ChatUsageMetric(
+                label = "Output tokens",
+                tokenCount = usage.outputTokens,
+                costNanodollars = usage.outputCostNanodollars
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Estimated total",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = formatUsd(usage.totalCostNanodollars),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            if (usage.missingUsageCallCount > 0) {
+                Text(
+                    text = "${formatTokenCount(usage.missingUsageCallCount)} successful " +
+                        "response(s) did not include complete token metadata, so totals may be low.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 12.dp)
+                )
+            }
+
+            if (usage.unpricedCallCount > 0) {
+                Text(
+                    text = "${formatTokenCount(usage.unpricedCallCount)} response(s) used a model " +
+                        "without a configured price, so the cost estimate may be low.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChatUsageMetric(
+    label: String,
+    tokenCount: Long,
+    costNanodollars: Long
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Text(
+                text = formatTokenCount(tokenCount),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+        Text(
+            text = formatUsd(costNanodollars),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .align(Alignment.End)
+                .padding(top = 2.dp)
+        )
+    }
+}
+
+private fun formatTokenCount(value: Long): String =
+    NumberFormat.getIntegerInstance(Locale.US).format(value.coerceAtLeast(0))
+
+private fun formatUsd(nanodollars: Long): String {
+    if (nanodollars <= 0) return "$0.00"
+    val dollars = ChatUsagePricing.nanodollarsToUsd(nanodollars)
+    if (dollars < 0.000001) return "<$0.000001"
+
+    return NumberFormat.getCurrencyInstance(Locale.US).apply {
+        minimumFractionDigits = 2
+        maximumFractionDigits = 6
+    }.format(dollars)
 }
 
 @Composable
