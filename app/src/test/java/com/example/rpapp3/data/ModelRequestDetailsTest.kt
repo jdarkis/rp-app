@@ -9,6 +9,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -60,6 +61,26 @@ class ModelRequestDetailsTest {
         val restored = ModelRequestDetails.fromMap(original.toMap())
 
         assertEquals(original, restored)
+    }
+
+    @Test
+    fun usageRecordIdRoundTripsAndLegacyMapsRemainCompatible() {
+        val details = buildGeminiRequestDetails(
+            chatId = "chat-1",
+            userMessage = ChatMessage(
+                id = "message-1",
+                chatId = "chat-1",
+                text = "Continue",
+                isUser = true
+            ),
+            history = emptyList(),
+            systemPrompt = "",
+            settings = ChatSettings(aiModelId = "gemini-2.5-flash"),
+            usageRecordId = "usage-1"
+        )
+
+        assertEquals("usage-1", ModelRequestDetails.fromMap(details.toMap()).usageRecordId)
+        assertNull(ModelRequestDetails.fromMap(details.toMap() - "usageRecordId").usageRecordId)
     }
 
     @Test

@@ -390,6 +390,44 @@ class ChatRepository {
             Result.failure(e)
         }
     }
+
+    suspend fun getChatUsageRecord(
+        chatId: String,
+        usageRecordId: String
+    ): Result<ChatUsageRecord?> {
+        return try {
+            val document = chatsCollection
+                .document(chatId)
+                .collection("usage_records")
+                .document(usageRecordId)
+                .get()
+                .await()
+            Result.success(ChatUsageRecord.fromMap(document.data))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getLatestChatUsageForMessage(
+        chatId: String,
+        messageId: String,
+        modelId: String
+    ): Result<ChatUsageRecord?> {
+        return try {
+            val documents = chatsCollection
+                .document(chatId)
+                .collection("usage_records")
+                .whereEqualTo("messageId", messageId)
+                .get()
+                .await()
+            val records = documents.documents.mapNotNull { document ->
+                ChatUsageRecord.fromMap(document.data)
+            }
+            Result.success(selectLatestUsageRecord(records, messageId, modelId))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
     
     /**
      * Delete a single message from a chat
@@ -693,5 +731,15 @@ class ChatRepository {
             Result.failure(e)
         }
     }
+}
+
+internal fun selectLatestUsageRecord(
+    records: List<ChatUsageRecord>,
+    messageId: String,
+    modelId: String
+): ChatUsageRecord? {
+    return records
+        .filter { it.messageId == messageId && it.modelId == modelId }
+        .maxWithOrNull(compareBy<ChatUsageRecord> { it.createdAt }.thenBy { it.id })
 }
 

@@ -30,8 +30,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.rpapp3.data.model.ChatUsageRecord
 import com.example.rpapp3.data.model.ModelRequestDetails
 import com.example.rpapp3.data.model.ModelRequestStatus
+import com.example.rpapp3.ui.util.formatInputTokenCost
+import com.example.rpapp3.ui.util.formatInputTokenCount
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -41,7 +44,9 @@ fun ModelRequestDetailsDialog(
     details: ModelRequestDetails?,
     isLoading: Boolean,
     errorMessage: String?,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    inputUsage: ChatUsageRecord? = null,
+    showInputUsage: Boolean = false
 ) {
     val context = LocalContext.current
 
@@ -70,7 +75,7 @@ fun ModelRequestDetailsDialog(
                     )
                 }
                 else -> {
-                    RequestDetailsContent(details)
+                    RequestDetailsContent(details, inputUsage, showInputUsage)
                 }
             }
         },
@@ -80,7 +85,14 @@ fun ModelRequestDetailsDialog(
                     onClick = {
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         clipboard.setPrimaryClip(
-                            ClipData.newPlainText("API request details", details.toCopyText())
+                            ClipData.newPlainText(
+                                "API request details",
+                                buildModelRequestDetailsCopyText(
+                                    details = details,
+                                    inputUsage = inputUsage,
+                                    showInputUsage = showInputUsage
+                                )
+                            )
                         )
                         Toast.makeText(context, "Request details copied", Toast.LENGTH_SHORT).show()
                     }
@@ -99,7 +111,11 @@ fun ModelRequestDetailsDialog(
 }
 
 @Composable
-private fun RequestDetailsContent(details: ModelRequestDetails) {
+private fun RequestDetailsContent(
+    details: ModelRequestDetails,
+    inputUsage: ChatUsageRecord?,
+    showInputUsage: Boolean
+) {
     val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
         .format(Date(details.createdAt))
 
@@ -118,6 +134,13 @@ private fun RequestDetailsContent(details: ModelRequestDetails) {
             DetailLine("Streaming", details.streaming.toString())
             DetailLine("Captured", timestamp)
             details.endpoint?.let { DetailLine("Endpoint", it) }
+        }
+
+        if (showInputUsage) {
+            DetailsSection("Input Usage") {
+                DetailLine("Input tokens", formatInputTokenCount(inputUsage))
+                DetailLine("Estimated input cost", formatInputTokenCost(inputUsage))
+            }
         }
 
         DetailsSection("System Prompt") {
@@ -153,6 +176,22 @@ private fun RequestDetailsContent(details: ModelRequestDetails) {
         DetailsSection(details.rawSnapshotLabel) {
             MonospaceBlock(details.rawSnapshot.ifBlank { "(not available)" })
         }
+    }
+}
+
+internal fun buildModelRequestDetailsCopyText(
+    details: ModelRequestDetails,
+    inputUsage: ChatUsageRecord?,
+    showInputUsage: Boolean
+): String {
+    if (!showInputUsage) return details.toCopyText()
+
+    return buildString {
+        appendLine(details.toCopyText())
+        appendLine()
+        appendLine("INPUT USAGE")
+        appendLine("Input tokens: ${formatInputTokenCount(inputUsage)}")
+        append("Estimated input cost: ${formatInputTokenCost(inputUsage)}")
     }
 }
 

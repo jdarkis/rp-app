@@ -16,7 +16,8 @@ fun buildGeminiRequestDetails(
     systemPrompt: String,
     settings: ChatSettings,
     status: ModelRequestStatus = ModelRequestStatus.SENT,
-    failureReason: String? = null
+    failureReason: String? = null,
+    usageRecordId: String? = null
 ): ModelRequestDetails {
     val messages = history.map { message ->
         ModelRequestMessage(
@@ -69,6 +70,7 @@ fun buildGeminiRequestDetails(
     return ModelRequestDetails(
         chatId = chatId,
         messageId = userMessage.id,
+        usageRecordId = usageRecordId,
         status = status,
         failureReason = failureReason,
         provider = "Gemini",
@@ -88,7 +90,8 @@ fun buildBedrockRequestDetails(
     userMessage: ChatMessage,
     request: BedrockConverseRequest,
     status: ModelRequestStatus = ModelRequestStatus.SENT,
-    failureReason: String? = null
+    failureReason: String? = null,
+    usageRecordId: String? = null
 ): ModelRequestDetails {
     val generation = normalizeBedrockGenerationSettings(request.settings)
     val parameters = buildList {
@@ -108,6 +111,7 @@ fun buildBedrockRequestDetails(
     return ModelRequestDetails(
         chatId = chatId,
         messageId = userMessage.id,
+        usageRecordId = usageRecordId,
         status = status,
         failureReason = failureReason,
         provider = "Amazon Bedrock",

@@ -38,12 +38,14 @@ import com.example.rpapp3.data.model.ChatMessage
 import com.example.rpapp3.data.model.ChatUsageRecord
 import com.example.rpapp3.data.model.ChatUsageSummary
 import com.example.rpapp3.data.model.ModelRequestDetails
+import com.example.rpapp3.data.model.ModelRequestDetailsWithUsage
 import com.example.rpapp3.data.model.ModelRequestStatus
 import com.example.rpapp3.data.model.ProviderTokenUsage
 import com.example.rpapp3.data.model.SegmentAudioCache
 import com.example.rpapp3.data.model.SummaryProposal
 import com.example.rpapp3.data.model.World
 import com.example.rpapp3.data.model.geminiTokenUsage
+import com.example.rpapp3.data.model.resolveModelRequestUsage
 import com.example.rpapp3.ui.chat.SelectedUpdates
 import com.example.rpapp3.data.repository.CharacterRepository
 import com.example.rpapp3.data.repository.ChatRepository
@@ -643,13 +645,17 @@ class ChatViewModel : ViewModel() {
             if (currentSettings.separateCharacterDialogue) {
                 appendLine()
                 appendLine("=== DIALOGUE FORMAT ===")
-                appendLine("When a character speaks, format their dialogue as:")
-                appendLine("[Character Name]:\"What they say\"")
+                appendLine("Write narration as plain prose without quotation marks.")
+                appendLine()
+                appendLine("Format every spoken line exactly as:")
+                appendLine("[Character Name]:\"Spoken words\"")
+                appendLine()
+                appendLine("Never include untagged speech in narration. Keep actions and descriptions outside the quoted speech. Use a consistent role, such as [Landlady], for unnamed characters.")
                 appendLine()
                 appendLine("Example:")
-                appendLine("[Eve]:\"What are you doing here?\"")
-                appendLine()
-                appendLine("Use this format for ALL direct character speech. Narrative descriptions should NOT use this format.")
+                appendLine("She handed him the letter.")
+                appendLine("[Landlady]:\"This is not a lodging permit.\"")
+                appendLine("She withdrew her hand.")
             }
             
             // Add choices instructions when provideChoicesEnabled is enabled
@@ -790,7 +796,8 @@ class ChatViewModel : ViewModel() {
                         userMessage = userChatMessage,
                         chatId = chatId,
                         status = ModelRequestStatus.NOT_SENT,
-                        failureReason = setupError
+                        failureReason = setupError,
+                        usageRecordId = usageRecordId
                     )
                     detailsRecorded = true
                 }
@@ -823,7 +830,8 @@ class ChatViewModel : ViewModel() {
                         buildBedrockRequestDetails(
                             chatId = chatId,
                             userMessage = userChatMessage,
-                            request = bedrockRequest
+                            request = bedrockRequest,
+                            usageRecordId = usageRecordId
                         )
                     )
                     detailsRecorded = true
@@ -878,7 +886,8 @@ class ChatViewModel : ViewModel() {
                         userMessage = userChatMessage,
                         history = modelHistory(userChatMessage.id),
                         systemPrompt = _systemPrompt.value.orEmpty(),
-                        settings = currentSettings
+                        settings = currentSettings,
+                        usageRecordId = usageRecordId
                     )
                 )
                 detailsRecorded = true
@@ -1023,7 +1032,8 @@ class ChatViewModel : ViewModel() {
                     userMessage = userChatMessage,
                     chatId = chatId,
                     status = ModelRequestStatus.NOT_SENT,
-                    failureReason = errorMessage
+                    failureReason = errorMessage,
+                    usageRecordId = usageRecordId
                 )
                 detailsRecorded = true
             }
@@ -1207,7 +1217,8 @@ class ChatViewModel : ViewModel() {
         userMessage: ChatMessage,
         chatId: String,
         status: ModelRequestStatus,
-        failureReason: String
+        failureReason: String,
+        usageRecordId: String
     ) {
         val details = when (currentAiProvider) {
             AiProvider.GEMINI -> buildGeminiRequestDetails(
@@ -1217,7 +1228,8 @@ class ChatViewModel : ViewModel() {
                 systemPrompt = _systemPrompt.value.orEmpty(),
                 settings = currentSettings,
                 status = status,
-                failureReason = failureReason
+                failureReason = failureReason,
+                usageRecordId = usageRecordId
             )
             AiProvider.BEDROCK -> buildBedrockRequestDetails(
                 chatId = chatId,
@@ -1229,7 +1241,8 @@ class ChatViewModel : ViewModel() {
                     settings = currentSettings
                 ),
                 status = status,
-                failureReason = failureReason
+                failureReason = failureReason,
+                usageRecordId = usageRecordId
             )
         }
         persistRequestDetails(details)
@@ -1263,10 +1276,39 @@ class ChatViewModel : ViewModel() {
             }
     }
 
-    suspend fun getModelRequestDetails(messageId: String): Result<ModelRequestDetails?> {
+    suspend fun getModelRequestDetails(messageId: String): Result<ModelRequestDetailsWithUsage?> {
         val chatId = _currentChat.value?.id
             ?: return Result.failure(IllegalStateException("Chat is not loaded"))
-        return chatRepository.getModelRequestDetails(chatId, messageId)
+        val detailsResult = chatRepository.getModelRequestDetails(chatId, messageId)
+        if (detailsResult.isFailure) {
+            return Result.failure(
+                detailsResult.exceptionOrNull()
+                    ?: IllegalStateException("Failed to load request details")
+            )
+        }
+
+        val details = detailsResult.getOrNull() ?: return Result.success(null)
+        val exactUsage = details.usageRecordId?.let { usageRecordId ->
+            chatRepository.getChatUsageRecord(chatId, usageRecordId).getOrNull()
+        }
+        val legacyUsage = if (
+            details.usageRecordId == null && details.status == ModelRequestStatus.SENT
+        ) {
+            chatRepository.getLatestChatUsageForMessage(
+                chatId = chatId,
+                messageId = details.messageId,
+                modelId = details.modelId
+            ).getOrNull()
+        } else {
+            null
+        }
+
+        return Result.success(
+            ModelRequestDetailsWithUsage(
+                details = details,
+                usage = resolveModelRequestUsage(details, exactUsage, legacyUsage)
+            )
+        )
     }
 
     fun updateChatSettings(transform: (ChatSettings) -> ChatSettings) {

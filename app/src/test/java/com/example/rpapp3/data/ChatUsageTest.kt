@@ -4,7 +4,11 @@ import com.example.rpapp3.data.model.Chat
 import com.example.rpapp3.data.model.ChatUsagePricing
 import com.example.rpapp3.data.model.ChatUsageRecord
 import com.example.rpapp3.data.model.ChatUsageSummary
+import com.example.rpapp3.data.model.ModelRequestDetails
+import com.example.rpapp3.data.model.ModelRequestStatus
 import com.example.rpapp3.data.model.geminiTokenUsage
+import com.example.rpapp3.data.model.resolveModelRequestUsage
+import com.example.rpapp3.data.repository.selectLatestUsageRecord
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -167,4 +171,78 @@ class ChatUsageTest {
         assertFalse(missing.hasCompleteUsage)
         assertFalse(unpriced.hasCompletePricing)
     }
+
+    @Test
+    fun legacyUsageSelectionUsesNewestMatchingMessageAndModel() {
+        val records = listOf(
+            usageRecord(id = "older", messageId = "message", modelId = "model", createdAt = 10),
+            usageRecord(id = "newer", messageId = "message", modelId = "model", createdAt = 20),
+            usageRecord(id = "wrong-model", messageId = "message", modelId = "other", createdAt = 30),
+            usageRecord(id = "wrong-message", messageId = "other", modelId = "model", createdAt = 40)
+        )
+
+        assertEquals(
+            "newer",
+            selectLatestUsageRecord(records, messageId = "message", modelId = "model")?.id
+        )
+    }
+
+    @Test
+    fun requestUsagePrefersExactRecordAndSkipsNotSentRequests() {
+        val exact = usageRecord(id = "exact", messageId = "message", modelId = "model", createdAt = 10)
+        val legacy = usageRecord(id = "legacy", messageId = "message", modelId = "model", createdAt = 20)
+        val exactDetails = requestDetails(usageRecordId = "exact")
+
+        assertEquals(exact, resolveModelRequestUsage(exactDetails, exact, legacy))
+        assertEquals(
+            legacy,
+            resolveModelRequestUsage(requestDetails(usageRecordId = null), exact, legacy)
+        )
+        assertNull(
+            resolveModelRequestUsage(
+                requestDetails(
+                    usageRecordId = null,
+                    status = ModelRequestStatus.NOT_SENT
+                ),
+                exact,
+                legacy
+            )
+        )
+    }
+
+    private fun usageRecord(
+        id: String,
+        messageId: String,
+        modelId: String,
+        createdAt: Long
+    ) = ChatUsageRecord(
+        id = id,
+        chatId = "chat",
+        messageId = messageId,
+        provider = AiProvider.GEMINI.name,
+        modelId = modelId,
+        createdAt = createdAt,
+        inputTokens = 100,
+        outputTokens = 50,
+        inputCostNanodollars = 30_000,
+        outputCostNanodollars = 125_000
+    )
+
+    private fun requestDetails(
+        usageRecordId: String?,
+        status: ModelRequestStatus = ModelRequestStatus.SENT
+    ) = ModelRequestDetails(
+        chatId = "chat",
+        messageId = "message",
+        usageRecordId = usageRecordId,
+        status = status,
+        provider = "Gemini",
+        modelId = "model",
+        streaming = false,
+        systemPrompt = "",
+        messages = emptyList(),
+        parameters = emptyList(),
+        rawSnapshotLabel = "Snapshot",
+        rawSnapshot = "{}"
+    )
 }

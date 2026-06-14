@@ -41,7 +41,7 @@ import com.example.rpapp3.data.MessageFilterMode
 import com.example.rpapp3.data.TTSPlaybackState
 import com.example.rpapp3.data.model.ChatMessage
 import com.example.rpapp3.data.model.Character
-import com.example.rpapp3.data.model.ModelRequestDetails
+import com.example.rpapp3.data.model.ModelRequestDetailsWithUsage
 import com.example.rpapp3.ui.components.ModelRequestDetailsDialog
 import com.example.rpapp3.viewmodel.ChatViewModel
 import kotlinx.coroutines.launch
@@ -202,16 +202,18 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     var showRequestDetailsDialog by remember { mutableStateOf(false) }
-    var requestDetails by remember { mutableStateOf<ModelRequestDetails?>(null) }
+    var requestDetails by remember { mutableStateOf<ModelRequestDetailsWithUsage?>(null) }
     var requestDetailsLoading by remember { mutableStateOf(false) }
     var requestDetailsError by remember { mutableStateOf<String?>(null) }
 
     if (showRequestDetailsDialog) {
         ModelRequestDetailsDialog(
-            details = requestDetails,
+            details = requestDetails?.details,
             isLoading = requestDetailsLoading,
             errorMessage = requestDetailsError,
-            onDismiss = { showRequestDetailsDialog = false }
+            onDismiss = { showRequestDetailsDialog = false },
+            inputUsage = requestDetails?.usage,
+            showInputUsage = true
         )
     }
     val context = LocalContext.current

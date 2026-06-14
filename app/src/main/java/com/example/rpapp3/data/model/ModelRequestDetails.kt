@@ -46,6 +46,7 @@ data class ModelRequestParameter(
 data class ModelRequestDetails(
     val chatId: String,
     val messageId: String,
+    val usageRecordId: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val status: ModelRequestStatus = ModelRequestStatus.SENT,
     val failureReason: String? = null,
@@ -63,6 +64,7 @@ data class ModelRequestDetails(
     fun toMap(): Map<String, Any?> = mapOf(
         "chatId" to chatId,
         "messageId" to messageId,
+        "usageRecordId" to usageRecordId,
         "createdAt" to createdAt,
         "status" to status.name,
         "failureReason" to failureReason,
@@ -112,6 +114,7 @@ data class ModelRequestDetails(
             return ModelRequestDetails(
                 chatId = map["chatId"] as? String ?: "",
                 messageId = map["messageId"] as? String ?: "",
+                usageRecordId = map["usageRecordId"] as? String,
                 createdAt = (map["createdAt"] as? Number)?.toLong() ?: 0L,
                 status = runCatching {
                     ModelRequestStatus.valueOf(map["status"] as? String ?: "")
@@ -141,5 +144,26 @@ data class ModelRequestDetails(
                     (item as? Map<String, Any?>)?.let(mapper)
                 }
         }
+    }
+}
+
+data class ModelRequestDetailsWithUsage(
+    val details: ModelRequestDetails,
+    val usage: ChatUsageRecord?
+)
+
+internal fun resolveModelRequestUsage(
+    details: ModelRequestDetails,
+    exactUsage: ChatUsageRecord?,
+    legacyUsage: ChatUsageRecord?
+): ChatUsageRecord? {
+    if (details.status != ModelRequestStatus.SENT) return null
+
+    val usage = if (details.usageRecordId != null) exactUsage else legacyUsage
+    return usage?.takeIf { record ->
+        record.chatId == details.chatId &&
+            record.messageId == details.messageId &&
+            record.modelId == details.modelId &&
+            (details.usageRecordId == null || record.id == details.usageRecordId)
     }
 }
