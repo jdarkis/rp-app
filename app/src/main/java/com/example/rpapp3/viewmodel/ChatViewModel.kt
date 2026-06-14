@@ -68,8 +68,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -91,6 +94,9 @@ class ChatViewModel : ViewModel() {
     private val _ttsGenerationState = MutableStateFlow(TtsGenerationState())
     val ttsGenerationState: StateFlow<TtsGenerationState> = _ttsGenerationState
     private var ttsGenerationJob: Job? = null
+
+    private val _completedAiResponses = MutableSharedFlow<ChatMessage>()
+    val completedAiResponses: SharedFlow<ChatMessage> = _completedAiResponses.asSharedFlow()
     
     private val worldRepository = WorldRepository()
     private val characterRepository = CharacterRepository()
@@ -861,6 +867,7 @@ class ChatViewModel : ViewModel() {
                 }
 
                 _isLoading.value = false
+                parsedMessages.lastOrNull()?.let { _completedAiResponses.emit(it) }
                 return
             }
 
@@ -878,7 +885,7 @@ class ChatViewModel : ViewModel() {
             }
             
             // Check if streaming is enabled
-            if (currentSettings.streamingEnabled) {
+            val completedAiMessage = if (currentSettings.streamingEnabled) {
                 // Streaming mode
                 val streamingAiMessage = ChatMessage(
                     chatId = chatId,
@@ -954,6 +961,7 @@ class ChatViewModel : ViewModel() {
                 val finalMessage = _messages[messageIndex]
                 _fullMessageHistory.add(finalMessage)
                 chatRepository.addMessage(finalMessage)
+                finalMessage
             } else {
                 // Non-streaming mode (original behavior)
                 val response = chatSession?.sendMessage(userMessage)
@@ -996,9 +1004,11 @@ class ChatViewModel : ViewModel() {
                     // Save AI message to Firestore
                     chatRepository.addMessage(aiMessage)
                 }
+                parsedMessages.lastOrNull()
             }
             
             _isLoading.value = false
+            completedAiMessage?.let { _completedAiResponses.emit(it) }
             
         } catch (e: Exception) {
             // Extract full error details including cause

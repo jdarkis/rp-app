@@ -27,7 +27,6 @@ import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -233,15 +232,10 @@ fun ChatScreen(
     val playbackState = ttsManager?.playbackState?.collectAsState()
     val currentPlayingId = ttsManager?.currentPlayingId?.collectAsState()
     val ttsGenerationState by viewModel.ttsGenerationState.collectAsState()
-    
-    // Track last spoken message ID for auto-TTS (saveable to persist across config changes)
-    var lastSpokenMessageId by rememberSaveable { mutableStateOf<String?>(null) }
-    
-    // Track if we were previously loading (to detect when AI response completes)
-    var wasLoading by remember { mutableStateOf(false) }
-    
-    // Track if auto TTS was just enabled (to skip speaking existing messages)
-    var previousAutoTtsEnabled by remember { mutableStateOf(autoTtsEnabled) }
+
+    val latestChatSettings by rememberUpdatedState(chatSettings)
+    val latestCharacters by rememberUpdatedState(characters)
+    val latestWorldCharacters by rememberUpdatedState(worldCharacters)
     
     // State for pending input text (from choice selection)
     var pendingInputText by remember { mutableStateOf<String?>(null) }
@@ -283,65 +277,47 @@ fun ChatScreen(
         }
     }
     
-    // Auto-TTS for NEW AI messages only - triggered when loading finishes
-    LaunchedEffect(isLoading, autoTtsEnabled, ttsEnabled) {
-        // Detect if auto TTS was just enabled (skip speaking existing messages)
-        val autoTtsJustEnabled = autoTtsEnabled && !previousAutoTtsEnabled
-        previousAutoTtsEnabled = autoTtsEnabled
-        
-        // If auto TTS was just enabled, don't speak - wait for new messages
-        if (autoTtsJustEnabled) return@LaunchedEffect
-        
-        // Detect transition from loading to not loading (AI just finished responding)
-        val justFinishedLoading = wasLoading && !isLoading
-        wasLoading = isLoading
-        
-        if (!justFinishedLoading) return@LaunchedEffect
-        if (!ttsEnabled || !autoTtsEnabled || messages.isEmpty()) return@LaunchedEffect
-        
-        // Find the last AI message
-        val lastAiMessage = messages.lastOrNull { !it.isUser }
-        
-        // Only speak if it's a new message we haven't spoken yet
-        // Skip error messages (don't TTS error responses)
-        if (lastAiMessage != null && lastAiMessage.id != lastSpokenMessageId && !lastAiMessage.text.startsWith("Error:")) {
-            lastSpokenMessageId = lastAiMessage.id
-            
+    // Auto-TTS only reacts to successful AI responses produced while this screen is active.
+    LaunchedEffect(viewModel) {
+        viewModel.completedAiResponses.collect { completedMessage ->
+            val settings = latestChatSettings
+            if (!settings.ttsEnabled || !settings.autoTtsEnabled) return@collect
+
             // Get the display text based on current filter settings (visible text only)
-            val displayText = when (filterMode) {
+            val displayText = when (settings.filterMode) {
                 MessageFilterMode.AFTER_DELIMITER -> {
                     // Try each delimiter in order until one is found
                     var result: String? = null
-                    for (delimiter in customDelimiters) {
-                        if (delimiter.isNotEmpty() && lastAiMessage.text.contains(delimiter)) {
-                            result = lastAiMessage.text.substringAfterLast(delimiter).trim()
+                    for (delimiter in settings.customDelimiters) {
+                        if (delimiter.isNotEmpty() && completedMessage.text.contains(delimiter)) {
+                            result = completedMessage.text.substringAfterLast(delimiter).trim()
                             break
                         }
                     }
-                    result?.ifEmpty { lastAiMessage.text } ?: lastAiMessage.text
+                    result?.ifEmpty { completedMessage.text } ?: completedMessage.text
                 }
                 MessageFilterMode.LAST_N_PARAGRAPHS -> {
-                    val paragraphs = lastAiMessage.text.split("\n\n")
-                    if (paragraphs.size > paragraphCount) {
-                        paragraphs.takeLast(paragraphCount).joinToString("\n\n").trim()
+                    val paragraphs = completedMessage.text.split("\n\n")
+                    if (paragraphs.size > settings.paragraphCount) {
+                        paragraphs.takeLast(settings.paragraphCount).joinToString("\n\n").trim()
                     } else {
-                        lastAiMessage.text
+                        completedMessage.text
                     }
                 }
-                else -> lastAiMessage.text
+                else -> completedMessage.text
             }
             
             // Remove action/dialogue choices from the text before speaking
             val (_, textWithoutChoices) = parseChoices(displayText)
             
             // Parse segments if dialogue separation is enabled
-            if (separateCharacterDialogue) {
+            if (settings.separateCharacterDialogue) {
                 val segments = parseDialogueSegments(textWithoutChoices)
                 // Build list of speakable segments with character IDs
                 val speakableSegments = segments.map { segment ->
                     val character = if (segment.isCharacterDialogue && segment.characterName != null) {
-                        characters.find { it.name.equals(segment.characterName, ignoreCase = true) }
-                            ?: worldCharacters.find {
+                        latestCharacters.find { it.name.equals(segment.characterName, ignoreCase = true) }
+                            ?: latestWorldCharacters.find {
                                 it.name.equals(segment.characterName, ignoreCase = true)
                             }
                     } else null
@@ -352,13 +328,13 @@ fun ChatScreen(
                     )
                 }
                 // Speak all segments sequentially with appropriate voices, enabling audio caching
-                viewModel.speakSegmentsSequentially(speakableSegments, lastAiMessage.id)
+                viewModel.speakSegmentsSequentially(speakableSegments, completedMessage.id)
             } else {
                 // Speak the whole visible message (without choices), enabling audio caching
                 viewModel.speakTextWithCaching(
                     text = textWithoutChoices, 
-                    characterId = lastAiMessage.characterId,
-                    messageId = lastAiMessage.id,
+                    characterId = completedMessage.characterId,
+                    messageId = completedMessage.id,
                     segmentIndex = 0
                 )
             }
