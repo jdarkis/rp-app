@@ -84,7 +84,7 @@ class StorySummarizerService(private val context: Context) {
         val customPrompts = summarizerPromptsRepository.getSummarizerPromptsOnce()
         
         val systemPrompt = buildSystemPrompt(characters, world, detailLevel, customPrompts)
-        val chatContent = buildChatContent(messages)
+        val chatContent = buildStoryChatContent(messages)
         
         try {
             // Adjust max tokens based on detail level
@@ -206,7 +206,7 @@ class StorySummarizerService(private val context: Context) {
             }
         }
         
-        val chatContent = buildChatContent(messages)
+        val chatContent = buildStoryChatContent(messages)
         
         try {
             val generativeModel = GenerativeModel(
@@ -321,7 +321,7 @@ class StorySummarizerService(private val context: Context) {
             }
         }
         
-        val chatContent = buildChatContent(messages)
+        val chatContent = buildStoryChatContent(messages)
         
         try {
             val generativeModel = GenerativeModel(
@@ -436,7 +436,7 @@ class StorySummarizerService(private val context: Context) {
             }
         }
         
-        val chatContent = buildChatContent(messages)
+        val chatContent = buildStoryChatContent(messages)
         
         try {
             val generativeModel = GenerativeModel(
@@ -555,7 +555,7 @@ class StorySummarizerService(private val context: Context) {
             }
         }
         
-        val chatContent = buildChatContent(messages)
+        val chatContent = buildStoryChatContent(messages)
         
         try {
             val generativeModel = GenerativeModel(
@@ -737,18 +737,6 @@ class StorySummarizerService(private val context: Context) {
         }
     }
     
-    private fun buildChatContent(messages: List<ChatMessage>): String {
-        return buildString {
-            appendLine("=== CHAT HISTORY TO ANALYZE ===")
-            appendLine()
-            messages.forEach { msg ->
-                val sender = if (msg.isUser) "User" else (msg.characterName ?: "Narrator")
-                appendLine("[$sender]: ${msg.text}")
-                appendLine()
-            }
-        }
-    }
-    
     private fun parseResponse(
         jsonText: String, 
         characters: List<Character>, 
@@ -837,5 +825,17 @@ class StorySummarizerService(private val context: Context) {
         if (this.isNull(key)) return null
         val value = this.optString(key, "")
         return if (value.isBlank() || value == "null") null else value
+    }
+}
+
+internal fun buildStoryChatContent(messages: List<ChatMessage>): String {
+    return buildString {
+        appendLine("=== CHAT HISTORY TO ANALYZE ===")
+        appendLine()
+        sanitizeChatHistoryForAiContext(messages).forEach { msg ->
+            val sender = if (msg.isUser) "User" else (msg.characterName ?: "Narrator")
+            appendLine("[$sender]: ${msg.text}")
+            appendLine()
+        }
     }
 }

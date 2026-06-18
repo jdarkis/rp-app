@@ -2,7 +2,6 @@ package com.example.rpapp3.data.repository
 
 import com.example.rpapp3.data.model.Character
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.Query
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -18,7 +17,6 @@ class CharacterRepository {
     fun getCharactersByWorld(worldId: String): Flow<List<Character>> = callbackFlow {
         val listener = charactersCollection
             .whereEqualTo("worldId", worldId)
-            .orderBy("createdAt", Query.Direction.DESCENDING)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     close(error)
@@ -27,7 +25,7 @@ class CharacterRepository {
                 
                 val characters = snapshot?.documents?.mapNotNull { doc ->
                     doc.data?.let { Character.fromMap(it) }
-                } ?: emptyList()
+                }?.sortedByDescending { it.createdAt } ?: emptyList()
                 
                 trySend(characters)
             }
@@ -42,13 +40,12 @@ class CharacterRepository {
         return try {
             val docs = charactersCollection
                 .whereEqualTo("worldId", worldId)
-                .orderBy("createdAt", Query.Direction.DESCENDING)
                 .get()
                 .await()
             
             docs.documents.mapNotNull { doc ->
                 doc.data?.let { Character.fromMap(it) }
-            }
+            }.sortedByDescending { it.createdAt }
         } catch (e: Exception) {
             emptyList()
         }

@@ -145,10 +145,10 @@ class BedrockServiceTest {
         val profile = BedrockGenerationProfile()
 
         assertEquals(BedrockSamplingMode.TEMPERATURE, profile.samplingMode)
-        assertEquals(1f, profile.temperature)
+        assertEquals(0.9f, profile.temperature)
         assertEquals(0.999f, profile.topP)
         assertFalse(profile.topKEnabled)
-        assertEquals(16_384, profile.maxOutputTokens)
+        assertEquals(4_000, profile.maxOutputTokens)
     }
 
     @Test
@@ -213,7 +213,11 @@ class BedrockServiceTest {
         val messages = buildBedrockMessages(
             history = listOf(
                 ChatMessage(id = "first-user", text = "Hello", isUser = true),
-                ChatMessage(id = "assistant-one", text = "First line", isUser = false),
+                ChatMessage(
+                    id = "assistant-one",
+                    text = "First line\n[ACTIONS]\n1. I wait.",
+                    isUser = false
+                ),
                 ChatMessage(id = "assistant-two", text = "Second line", isUser = false),
                 pending
             ),
@@ -225,6 +229,7 @@ class BedrockServiceTest {
         assertEquals("First line\n\nSecond line", messages[1].text)
         assertEquals("Continue", messages[2].text)
         assertEquals(1, messages.count { it.text == "Continue" })
+        assertFalse(messages.any { it.text.contains("[ACTIONS]") })
     }
 
     @Test

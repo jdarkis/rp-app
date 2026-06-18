@@ -75,11 +75,11 @@ class ChatSettingsManager private constructor(private val context: Context) {
 
         // Claude Opus 4.6 defaults
         val DEFAULT_BEDROCK_SAMPLING_MODE = BedrockSamplingMode.TEMPERATURE
-        const val DEFAULT_BEDROCK_TEMPERATURE = 1.0f
+        const val DEFAULT_BEDROCK_TEMPERATURE = 0.9f
         const val DEFAULT_BEDROCK_TOP_P = 0.999f
         const val DEFAULT_BEDROCK_TOP_K = 64
         const val DEFAULT_BEDROCK_TOP_K_ENABLED = false
-        const val DEFAULT_BEDROCK_MAX_OUTPUT_TOKENS = 16384
+        const val DEFAULT_BEDROCK_MAX_OUTPUT_TOKENS = 4000
         
         // TTS Defaults
         const val DEFAULT_TTS_MODEL_ID = "eleven_v3"
@@ -409,11 +409,11 @@ Output Format Example: Internal Thought: I'm feeling a bit annoyed that they're 
     // AI Response Length Setting
     val responseLength: Flow<ResponseLength> = context.chatSettingsDataStore.data
         .map { preferences ->
-            val value = preferences[RESPONSE_LENGTH_KEY] ?: ResponseLength.MEDIUM.name
+            val value = preferences[RESPONSE_LENGTH_KEY] ?: ResponseLength.SHORT.name
             try {
                 ResponseLength.valueOf(value)
             } catch (e: IllegalArgumentException) {
-                ResponseLength.MEDIUM
+                ResponseLength.SHORT
             }
         }
 
@@ -828,7 +828,7 @@ Output Format Example: Internal Thought: I'm feeling a bit annoyed that they're 
             preferences[SAFETY_DANGEROUS_CONTENT_KEY] = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE.name
             preferences[SEPARATE_CHARACTER_DIALOGUE_KEY] = true
             preferences[PROVIDE_CHOICES_ENABLED_KEY] = true
-            preferences[RESPONSE_LENGTH_KEY] = ResponseLength.MEDIUM.name
+            preferences[RESPONSE_LENGTH_KEY] = ResponseLength.SHORT.name
             // TTS defaults
             preferences[TTS_ENABLED_KEY] = false
             preferences[AUTO_TTS_ENABLED_KEY] = false
@@ -955,7 +955,7 @@ data class ChatSettings(
     val safetyDangerousContent: SafetyThreshold = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE,
     val separateCharacterDialogue: Boolean = true,
     val provideChoicesEnabled: Boolean = true,
-    val responseLength: ResponseLength = ResponseLength.MEDIUM,
+    val responseLength: ResponseLength = ResponseLength.SHORT,
     // TTS Settings
     val ttsEnabled: Boolean = false,
     val autoTtsEnabled: Boolean = false,

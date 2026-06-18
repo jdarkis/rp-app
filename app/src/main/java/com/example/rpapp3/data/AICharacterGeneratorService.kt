@@ -67,7 +67,7 @@ class AICharacterGeneratorService(private val context: Context) {
         }
         
         val systemPrompt = buildSystemPrompt()
-        val userPrompt = buildUserPrompt(
+        val userPrompt = buildCharacterExtractionUserPrompt(
             worldDescription = worldDescription,
             aiInstructions = aiInstructions,
             chatMessages = chatMessages,
@@ -146,55 +146,6 @@ class AICharacterGeneratorService(private val context: Context) {
         }
     }
     
-    private fun buildUserPrompt(
-        worldDescription: String?,
-        aiInstructions: String?,
-        chatMessages: List<ChatMessage>?,
-        additionalPrompt: String?
-    ): String {
-        return buildString {
-            appendLine("Extract all characters that are mentioned in the following context.")
-            appendLine("Remember: ONLY include characters that are explicitly named or referenced.")
-            appendLine()
-            
-            if (!worldDescription.isNullOrBlank()) {
-                appendLine("=== WORLD CONTEXT ===")
-                appendLine(worldDescription)
-                appendLine()
-            }
-            
-            if (!aiInstructions.isNullOrBlank()) {
-                appendLine("=== ROLEPLAY STYLE/INSTRUCTIONS ===")
-                appendLine(aiInstructions)
-                appendLine()
-            }
-            
-            if (!chatMessages.isNullOrEmpty()) {
-                appendLine("=== STORY/CHAT CONTEXT ===")
-                appendLine("Extract characters from this roleplay session:")
-                appendLine()
-                // Limit to last 50 messages for better context
-                val recentMessages = chatMessages.takeLast(50)
-                recentMessages.forEach { msg ->
-                    val speaker = if (msg.isUser) "User" else (msg.characterName ?: "Narrator")
-                    appendLine("[$speaker]: ${msg.text}")
-                }
-                appendLine()
-            }
-            
-            if (!additionalPrompt.isNullOrBlank()) {
-                appendLine("=== ADDITIONAL INSTRUCTIONS ===")
-                appendLine(additionalPrompt)
-                appendLine()
-            }
-            
-            appendLine("Based on the above context, extract all mentioned characters.")
-            appendLine("For each character, only include information that is EXPLICITLY stated in the context.")
-            appendLine("If a detail is not mentioned, mark it as 'Not specified in context'.")
-            appendLine("Remember to respond with ONLY the JSON array.")
-        }
-    }
-    
     private fun parseCharactersFromResponse(responseText: String): GenerationResult {
         return try {
             // Try to extract JSON from the response (handle markdown code blocks)
@@ -250,5 +201,52 @@ class AICharacterGeneratorService(private val context: Context) {
         
         // Return as-is and let JSON parser handle the error
         return response
+    }
+}
+
+internal fun buildCharacterExtractionUserPrompt(
+    worldDescription: String?,
+    aiInstructions: String?,
+    chatMessages: List<ChatMessage>?,
+    additionalPrompt: String?
+): String {
+    return buildString {
+        appendLine("Extract all characters that are mentioned in the following context.")
+        appendLine("Remember: ONLY include characters that are explicitly named or referenced.")
+        appendLine()
+
+        if (!worldDescription.isNullOrBlank()) {
+            appendLine("=== WORLD CONTEXT ===")
+            appendLine(worldDescription)
+            appendLine()
+        }
+
+        if (!aiInstructions.isNullOrBlank()) {
+            appendLine("=== ROLEPLAY STYLE/INSTRUCTIONS ===")
+            appendLine(aiInstructions)
+            appendLine()
+        }
+
+        if (!chatMessages.isNullOrEmpty()) {
+            appendLine("=== STORY/CHAT CONTEXT ===")
+            appendLine("Extract characters from this roleplay session:")
+            appendLine()
+            sanitizeChatHistoryForAiContext(chatMessages).takeLast(50).forEach { msg ->
+                val speaker = if (msg.isUser) "User" else (msg.characterName ?: "Narrator")
+                appendLine("[$speaker]: ${msg.text}")
+            }
+            appendLine()
+        }
+
+        if (!additionalPrompt.isNullOrBlank()) {
+            appendLine("=== ADDITIONAL INSTRUCTIONS ===")
+            appendLine(additionalPrompt)
+            appendLine()
+        }
+
+        appendLine("Based on the above context, extract all mentioned characters.")
+        appendLine("For each character, only include information that is EXPLICITLY stated in the context.")
+        appendLine("If a detail is not mentioned, mark it as 'Not specified in context'.")
+        appendLine("Remember to respond with ONLY the JSON array.")
     }
 }

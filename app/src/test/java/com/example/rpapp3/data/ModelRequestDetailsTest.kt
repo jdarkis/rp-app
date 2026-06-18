@@ -96,7 +96,10 @@ class ModelRequestDetailsTest {
             userMessage = pending,
             history = listOf(
                 ChatMessage(text = "Hello", isUser = true),
-                ChatMessage(text = "Hi there", isUser = false)
+                ChatMessage(
+                    text = "Hi there\n[ACTIONS]\n1. I wave.\n[DIALOGUE]\na. \"Hello\"",
+                    isUser = false
+                )
             ),
             systemPrompt = "System instructions",
             settings = ChatSettings(
@@ -115,6 +118,7 @@ class ModelRequestDetailsTest {
         val generation = raw.getValue("generationConfig").jsonObject
 
         assertEquals(listOf("user", "model", "user"), details.messages.map { it.role })
+        assertEquals("Hi there", details.messages[1].text)
         assertEquals("Continue", details.messages.last().text)
         assertEquals(3, contents.size)
         assertEquals("user", contents.last().jsonObject.getValue("role").jsonPrimitive.content)
@@ -123,6 +127,8 @@ class ModelRequestDetailsTest {
         assertTrue(details.streaming)
         assertTrue(details.safetySettings.any { it.name == "HARASSMENT" && it.value == "NONE" })
         assertTrue(details.rawSnapshotLabel.contains("SDK-equivalent"))
+        assertFalse(details.rawSnapshot.contains("[ACTIONS]"))
+        assertFalse(details.rawSnapshot.contains("[DIALOGUE]"))
     }
 
     @Test

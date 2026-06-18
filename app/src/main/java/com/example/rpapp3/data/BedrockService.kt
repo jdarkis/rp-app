@@ -346,7 +346,7 @@ internal fun buildBedrockMessages(
     history: List<ChatMessage>,
     pendingUserMessage: ChatMessage
 ): List<BedrockChatMessage> {
-    val sourceMessages = history
+    val sourceMessages = sanitizeChatHistoryForAiContext(history)
         .asSequence()
         .filter { it.id != pendingUserMessage.id && it.text.isNotBlank() }
         .map { BedrockChatMessage(isUser = it.isUser, text = it.text.trim()) }

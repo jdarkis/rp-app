@@ -40,15 +40,14 @@ import com.example.rpapp3.data.ResponseLength
 import com.example.rpapp3.data.SafetyThreshold
 import com.example.rpapp3.data.model.AllTTSModels
 import com.example.rpapp3.data.model.ElevenLabsTTSModels
-import com.example.rpapp3.data.model.Voice
+import com.example.rpapp3.data.model.GeminiTTSModels
 import com.example.rpapp3.viewmodel.ChatViewModel
 import com.example.rpapp3.ui.components.SUPPORTED_LANGUAGES
 import com.example.rpapp3.data.SummaryDetailLevel
 import com.example.rpapp3.data.repository.SummarizerPromptsRepository
 import com.example.rpapp3.data.repository.SummarizerPrompts
 import com.example.rpapp3.data.repository.VoiceRepository
-import com.example.rpapp3.data.InworldService
-import com.example.rpapp3.data.selectableElevenLabsVoices
+import com.example.rpapp3.data.selectableTtsVoices
 import com.example.rpapp3.data.model.InworldTTSModels
 import com.example.rpapp3.data.model.ChatUsageSummary
 import com.example.rpapp3.data.model.VoiceSource
@@ -56,6 +55,14 @@ import com.example.rpapp3.ui.util.formatTokenCount
 import com.example.rpapp3.ui.util.formatUsd
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+
+private fun voiceSourceForTtsModel(modelId: String): VoiceSource {
+    return when (modelId) {
+        InworldTTSModels.INWORLD_TTS_1_5_MAX.modelId -> VoiceSource.INWORLD
+        GeminiTTSModels.GEMINI_3_1_FLASH_TTS_PREVIEW.modelId -> VoiceSource.GEMINI
+        else -> VoiceSource.ELEVEN_LABS
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -114,28 +121,19 @@ fun ChatSettingsScreen(
     val aiModelId = settings.aiModelId
     val isBedrockModel = ChatSettingsManager.aiProviderFor(aiModelId) == AiProvider.BEDROCK
     
-    // Saved ElevenLabs voices and the live Inworld catalog
+    // Only voices activated in Settings are selectable.
     val voiceRepository = remember { VoiceRepository() }
-    val savedElevenLabsVoicesFlow = remember(voiceRepository) {
+    val savedVoicesFlow = remember(voiceRepository) {
         voiceRepository.getCustomVoices()
     }
-    val savedElevenLabsVoices by savedElevenLabsVoicesFlow
+    val savedVoices by savedVoicesFlow
         .collectAsState(initial = emptyList())
-    val inworldService = remember { InworldService.getInstance(context) }
     val ttsManager = remember { TTSManager.getInstance(context) }
-    var inworldVoices by remember { mutableStateOf<List<Voice>>(emptyList()) }
-    val voices = remember(savedElevenLabsVoices, inworldVoices) {
-        selectableElevenLabsVoices(savedElevenLabsVoices) +
-            inworldVoices.filter { it.source == VoiceSource.INWORLD }
+    val voices = remember(savedVoices) {
+        selectableTtsVoices(savedVoices)
     }
-    var voicesLoading by remember { mutableStateOf(false) }
     val playbackState by ttsManager.playbackState.collectAsState()
     val currentPlayingId by ttsManager.currentPlayingId.collectAsState()
-    
-    // Load voices when TTS section is opened
-    LaunchedEffect(Unit) {
-        inworldService.initialize()
-    }
     
     // Local state for inputs
     var delimiterInputs by remember(customDelimiters) { mutableStateOf(customDelimiters) }
@@ -770,19 +768,10 @@ fun ChatSettingsScreen(
                     expanded = ttsSectionExpanded,
                     onToggle = { 
                         ttsSectionExpanded = !ttsSectionExpanded
-                        // Load voices when opening
-                        if (ttsSectionExpanded && inworldVoices.isEmpty()) {
-                            voicesLoading = true
-                            scope.launch {
-                                inworldService.getVoices()
-                                    .onSuccess { inworldVoices = it }
-                                voicesLoading = false
-                            }
-                        }
                     }
                 ) {
-                    Text(
-                        text = "Enable voice synthesis for AI messages using ElevenLabs or Inworld",
+                        Text(
+                            text = "Enable voice synthesis for AI messages using ElevenLabs, Inworld, or Gemini",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 8.dp)
@@ -871,8 +860,21 @@ fun ChatSettingsScreen(
                                             }
                                         },
                                         onClick = {
+                                            val targetVoiceSource = voiceSourceForTtsModel(model.modelId)
+                                            val narratorVoiceStillValid = narratorVoiceId.isNotBlank() &&
+                                                voices.any { voice ->
+                                                    voice.voiceId == narratorVoiceId &&
+                                                        voice.source == targetVoiceSource
+                                                }
                                             chatViewModel.updateChatSettings {
-                                                it.copy(ttsModelId = model.modelId)
+                                                it.copy(
+                                                    ttsModelId = model.modelId,
+                                                    narratorVoiceId = if (narratorVoiceStillValid) {
+                                                        it.narratorVoiceId
+                                                    } else {
+                                                        ""
+                                                    }
+                                                )
                                             }
                                             modelExpanded = false
                                         }
@@ -895,21 +897,14 @@ fun ChatSettingsScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         
-                        if (voicesLoading) {
-                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
-                        } else {
-                            var voiceExpanded by remember { mutableStateOf(false) }
-                            val selectedVoice = voices.find { it.voiceId == narratorVoiceId }
+                        var voiceExpanded by remember { mutableStateOf(false) }
+                        val filteredVoices = remember(voices, ttsModelId) {
+                            val selectedVoiceSource = voiceSourceForTtsModel(ttsModelId)
+                            voices.filter { it.source == selectedVoiceSource }
+                        }
+                        val selectedVoice = filteredVoices.find { it.voiceId == narratorVoiceId }
                             
-                            val filteredVoices = remember(voices, ttsModelId) {
-                                if (ttsModelId == InworldTTSModels.INWORLD_TTS_1_5_MAX.modelId) {
-                                    voices.filter { it.source == VoiceSource.INWORLD }
-                                } else {
-                                    voices.filter { it.source == VoiceSource.ELEVEN_LABS }
-                                }
-                            }
-                            
-                            ExposedDropdownMenuBox(
+                        ExposedDropdownMenuBox(
                                 expanded = voiceExpanded,
                                 onExpandedChange = { voiceExpanded = !voiceExpanded },
                                 modifier = Modifier.padding(top = 8.dp)
@@ -999,7 +994,6 @@ fun ChatSettingsScreen(
                                 }
                             }
                         }
-                    }
                 }
                 
                 if (!isBedrockModel) {

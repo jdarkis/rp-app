@@ -19,7 +19,7 @@ fun buildGeminiRequestDetails(
     failureReason: String? = null,
     usageRecordId: String? = null
 ): ModelRequestDetails {
-    val messages = history.map { message ->
+    val messages = sanitizeChatHistoryForAiContext(history).map { message ->
         ModelRequestMessage(
             role = if (message.isUser) "user" else "model",
             text = message.text

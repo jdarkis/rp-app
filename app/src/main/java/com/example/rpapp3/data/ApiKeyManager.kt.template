@@ -12,6 +12,47 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "api_keys")
+private const val GEMINI_API_KEY_SEPARATOR = "|||"
+
+internal fun parseGeminiApiKeyList(keysString: String): List<String> {
+    if (keysString.isBlank()) return emptyList()
+    return keysString.split(GEMINI_API_KEY_SEPARATOR).filter { it.isNotBlank() }
+}
+
+internal fun serializeGeminiApiKeyList(keys: Collection<String>): String {
+    return keys.joinToString(GEMINI_API_KEY_SEPARATOR)
+}
+
+internal fun geminiDefaultKeysToSync(
+    currentKeys: Collection<String>,
+    removedDefaultKeys: Collection<String>,
+    defaultKeys: Collection<String>
+): List<String> {
+    val currentKeySet = currentKeys.toSet()
+    val removedDefaultKeySet = removedDefaultKeys.toSet()
+    return defaultKeys.filter { defaultKey ->
+        defaultKey !in currentKeySet && defaultKey !in removedDefaultKeySet
+    }
+}
+
+internal fun markGeminiDefaultKeyRemoved(
+    key: String,
+    removedDefaultKeys: Set<String>,
+    defaultKeys: Collection<String>
+): Set<String> {
+    return if (key in defaultKeys) {
+        removedDefaultKeys + key
+    } else {
+        removedDefaultKeys
+    }
+}
+
+internal fun unmarkGeminiDefaultKeyRemoved(
+    key: String,
+    removedDefaultKeys: Set<String>
+): Set<String> {
+    return removedDefaultKeys - key
+}
 
 /**
  * API Key Manager for Gemini API.
@@ -26,8 +67,8 @@ class ApiKeyManager(private val context: Context) {
     
     companion object {
         private val API_KEYS_KEY = stringPreferencesKey("api_keys")
+        private val REMOVED_DEFAULT_API_KEYS_KEY = stringPreferencesKey("removed_default_api_keys")
         private val CURRENT_INDEX_KEY = intPreferencesKey("current_key_index")
-        private const val SEPARATOR = "|||"
         
         // TODO: Replace with your Gemini API keys
         // You can add multiple keys for rotation when quota is exhausted
@@ -51,11 +92,7 @@ class ApiKeyManager(private val context: Context) {
      */
     val apiKeys: Flow<List<String>> = context.dataStore.data.map { preferences ->
         val keysString = preferences[API_KEYS_KEY] ?: ""
-        if (keysString.isEmpty()) {
-            emptyList()
-        } else {
-            keysString.split(SEPARATOR)
-        }
+        parseGeminiApiKeyList(keysString)
     }
     
     /**
@@ -66,14 +103,31 @@ class ApiKeyManager(private val context: Context) {
     }
     
     /**
-     * Initialize with default API keys if not already set
+     * Initialize with default API keys if not already set.
+     * Also syncs any new default keys that were added to DEFAULT_API_KEYS.
      */
     suspend fun initializeDefaults() {
         val currentKeys = apiKeys.first()
-        if (currentKeys.isEmpty()) {
+        val removedDefaultKeys = context.dataStore.data.map { preferences ->
+            parseGeminiApiKeyList(preferences[REMOVED_DEFAULT_API_KEYS_KEY] ?: "")
+        }.first()
+
+        if (currentKeys.isEmpty() && removedDefaultKeys.isEmpty()) {
             context.dataStore.edit { preferences ->
-                preferences[API_KEYS_KEY] = DEFAULT_API_KEYS.joinToString(SEPARATOR)
+                preferences[API_KEYS_KEY] = serializeGeminiApiKeyList(DEFAULT_API_KEYS)
                 preferences[CURRENT_INDEX_KEY] = 0
+            }
+        } else {
+            val newDefaultKeys = geminiDefaultKeysToSync(
+                currentKeys = currentKeys,
+                removedDefaultKeys = removedDefaultKeys,
+                defaultKeys = DEFAULT_API_KEYS
+            )
+            if (newDefaultKeys.isNotEmpty()) {
+                context.dataStore.edit { preferences ->
+                    val updatedKeys = currentKeys + newDefaultKeys
+                    preferences[API_KEYS_KEY] = serializeGeminiApiKeyList(updatedKeys)
+                }
             }
         }
     }
@@ -92,23 +146,29 @@ class ApiKeyManager(private val context: Context) {
      */
     suspend fun addApiKey(key: String) {
         if (key.isBlank()) return
+        val trimmedKey = key.trim()
         context.dataStore.edit { preferences ->
             val currentKeys = preferences[API_KEYS_KEY] ?: ""
-            val keysList = if (currentKeys.isEmpty()) {
-                mutableListOf()
-            } else {
-                currentKeys.split(SEPARATOR).toMutableList()
-            }
+            val keysList = parseGeminiApiKeyList(currentKeys).toMutableList()
             
             // Don't add duplicates
-            if (!keysList.contains(key.trim())) {
-                keysList.add(key.trim())
-                preferences[API_KEYS_KEY] = keysList.joinToString(SEPARATOR)
+            if (!keysList.contains(trimmedKey)) {
+                keysList.add(trimmedKey)
+                preferences[API_KEYS_KEY] = serializeGeminiApiKeyList(keysList)
                 
                 // Reset index to 0 so the new key gets a chance to be used
                 // This helps when all previous keys were exhausted
                 preferences[CURRENT_INDEX_KEY] = 0
             }
+
+            val removedDefaultKeys = parseGeminiApiKeyList(
+                preferences[REMOVED_DEFAULT_API_KEYS_KEY] ?: ""
+            ).toSet()
+            val updatedRemovedDefaultKeys = unmarkGeminiDefaultKeyRemoved(
+                key = trimmedKey,
+                removedDefaultKeys = removedDefaultKeys
+            )
+            preferences[REMOVED_DEFAULT_API_KEYS_KEY] = serializeGeminiApiKeyList(updatedRemovedDefaultKeys)
         }
     }
     
@@ -116,15 +176,27 @@ class ApiKeyManager(private val context: Context) {
      * Remove an API key from the pool
      */
     suspend fun removeApiKey(key: String) {
+        val trimmedKey = key.trim()
         context.dataStore.edit { preferences ->
             val currentKeys = preferences[API_KEYS_KEY] ?: ""
-            if (currentKeys.isEmpty()) return@edit
+            val keysList = parseGeminiApiKeyList(currentKeys).toMutableList()
+            if (keysList.isEmpty()) return@edit
             
-            val keysList = currentKeys.split(SEPARATOR).toMutableList()
-            val removedIndex = keysList.indexOf(key)
-            keysList.remove(key)
+            val removedIndex = keysList.indexOf(trimmedKey)
+            if (removedIndex == -1) return@edit
+            keysList.removeAt(removedIndex)
             
-            preferences[API_KEYS_KEY] = keysList.joinToString(SEPARATOR)
+            preferences[API_KEYS_KEY] = serializeGeminiApiKeyList(keysList)
+
+            val removedDefaultKeys = parseGeminiApiKeyList(
+                preferences[REMOVED_DEFAULT_API_KEYS_KEY] ?: ""
+            ).toSet()
+            val updatedRemovedDefaultKeys = markGeminiDefaultKeyRemoved(
+                key = trimmedKey,
+                removedDefaultKeys = removedDefaultKeys,
+                defaultKeys = DEFAULT_API_KEYS
+            )
+            preferences[REMOVED_DEFAULT_API_KEYS_KEY] = serializeGeminiApiKeyList(updatedRemovedDefaultKeys)
             
             // Adjust current index if needed
             val currentIndex = preferences[CURRENT_INDEX_KEY] ?: 0
@@ -144,9 +216,9 @@ class ApiKeyManager(private val context: Context) {
     suspend fun rotateToNextKey(): String? {
         context.dataStore.edit { preferences ->
             val currentKeys = preferences[API_KEYS_KEY] ?: ""
-            if (currentKeys.isEmpty()) return@edit
+            if (currentKeys.isBlank()) return@edit
             
-            val keysList = currentKeys.split(SEPARATOR)
+            val keysList = parseGeminiApiKeyList(currentKeys)
             if (keysList.isEmpty()) return@edit
             
             val currentIndex = preferences[CURRENT_INDEX_KEY] ?: 0

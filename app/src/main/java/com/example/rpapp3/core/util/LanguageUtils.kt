@@ -58,4 +58,19 @@ object LanguageUtils {
     fun isSupported(code: String): Boolean {
         return SUPPORTED_LANGUAGES.any { it.first == code }
     }
+
+    fun requiresExplicitLanguageInstructions(
+        narratorLanguage: String,
+        characterLanguages: Iterable<String>
+    ): Boolean {
+        return !isEnglish(narratorLanguage) || characterLanguages.any { !isEnglish(it) }
+    }
+
+    private fun isEnglish(code: String): Boolean {
+        val normalized = code.trim().lowercase()
+        return normalized.isEmpty() ||
+            normalized == "en" ||
+            normalized.startsWith("en-") ||
+            normalized.startsWith("en_")
+    }
 }

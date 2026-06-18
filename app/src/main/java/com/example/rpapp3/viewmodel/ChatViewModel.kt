@@ -20,6 +20,7 @@ import com.example.rpapp3.data.buildGeminiRequestDetails
 import com.example.rpapp3.data.ChatSettings
 import com.example.rpapp3.data.ChatSettingsManager
 import com.example.rpapp3.data.ElevenLabsService
+import com.example.rpapp3.data.GeminiTtsService
 import com.example.rpapp3.data.InworldService
 import com.example.rpapp3.data.ResponseLength
 import com.example.rpapp3.data.SafetyThreshold
@@ -32,6 +33,7 @@ import com.example.rpapp3.data.ResolvedTtsRequest
 import com.example.rpapp3.data.StorySummarizerService
 import com.example.rpapp3.data.SummaryDetailLevel
 import com.example.rpapp3.data.SummaryResult
+import com.example.rpapp3.data.sanitizeChatHistoryForAiContext
 import com.example.rpapp3.data.model.Character
 import com.example.rpapp3.data.model.Chat
 import com.example.rpapp3.data.model.ChatMessage
@@ -91,6 +93,7 @@ class ChatViewModel : ViewModel() {
     // TTS services
     private var elevenLabsService: ElevenLabsService? = null
     private var inworldService: InworldService? = null
+    private var geminiTtsService: GeminiTtsService? = null
     private var _ttsManager: TTSManager? = null
     val ttsManager: TTSManager? get() = _ttsManager
     private val _ttsGenerationState = MutableStateFlow(TtsGenerationState())
@@ -207,6 +210,7 @@ class ChatViewModel : ViewModel() {
             bedrockApiKeyManager = BedrockApiKeyManager.getInstance(context)
             elevenLabsService = ElevenLabsService.getInstance(context)
             inworldService = InworldService.getInstance(context)
+            geminiTtsService = GeminiTtsService.getInstance(context)
             _ttsManager = TTSManager.getInstance(context)
             storySummarizerService = StorySummarizerService(context)
             bedrockService = BedrockService()
@@ -218,6 +222,7 @@ class ChatViewModel : ViewModel() {
                 // Initialize ElevenLabs
                 elevenLabsService?.initialize()
                 inworldService?.initialize()
+                geminiTtsService?.initialize()
             }
         }
     }
@@ -533,9 +538,11 @@ class ChatViewModel : ViewModel() {
     }
 
     private fun modelHistory(excludedMessageId: String? = null): List<ChatMessage> {
-        return _fullMessageHistory.filter { message ->
-            excludedMessageId == null || message.id != excludedMessageId
-        }
+        return sanitizeChatHistoryForAiContext(
+            _fullMessageHistory.filter { message ->
+                excludedMessageId == null || message.id != excludedMessageId
+            }
+        )
     }
 
     private fun buildSystemInstructions(
@@ -604,13 +611,20 @@ class ChatViewModel : ViewModel() {
             appendLine("5. If multiple characters are present, you may respond as any or all of them as appropriate")
             appendLine("6. Write in a narrative style, describing actions, dialogue, and scenes naturally")
             
-            // Add narrator language instructions
-            appendLine()
-            appendLine("=== NARRATOR LANGUAGE ===")
-            val narratorLanguageName = LanguageUtils.getLanguageName(currentSettings.narratorLanguage)
-            appendLine("Write all NARRATION (descriptions, actions, scene-setting, internal thoughts exposition) in $narratorLanguageName.")
-            appendLine("IMPORTANT: Character DIALOGUE should still be in each character's specified language, NOT the narrator language.")
-            appendLine("Only the narrative prose between dialogue should be in $narratorLanguageName.")
+            // Add narrator language instructions only for multilingual/non-English chats
+            if (
+                LanguageUtils.requiresExplicitLanguageInstructions(
+                    narratorLanguage = currentSettings.narratorLanguage,
+                    characterLanguages = characters.map { it.language }
+                )
+            ) {
+                appendLine()
+                appendLine("=== NARRATOR LANGUAGE ===")
+                val narratorLanguageName = LanguageUtils.getLanguageName(currentSettings.narratorLanguage)
+                appendLine("Write all NARRATION (descriptions, actions, scene-setting, internal thoughts exposition) in $narratorLanguageName.")
+                appendLine("IMPORTANT: Character DIALOGUE should still be in each character's specified language, NOT the narrator language.")
+                appendLine("Only the narrative prose between dialogue should be in $narratorLanguageName.")
+            }
             
             // Add response length instructions
             appendLine()
@@ -2017,6 +2031,11 @@ class ChatViewModel : ViewModel() {
                 modelId = request.modelId
             )
             TtsProvider.INWORLD -> inworldService?.textToSpeech(
+                text = text,
+                voiceId = request.voiceId,
+                modelId = request.modelId
+            )
+            TtsProvider.GEMINI -> geminiTtsService?.textToSpeech(
                 text = text,
                 voiceId = request.voiceId,
                 modelId = request.modelId

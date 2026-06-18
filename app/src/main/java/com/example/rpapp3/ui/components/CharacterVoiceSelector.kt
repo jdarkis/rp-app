@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.rpapp3.data.GeminiTtsService
 import com.example.rpapp3.data.InworldService
 import com.example.rpapp3.data.TTSManager
 import com.example.rpapp3.data.TTSPlaybackState
@@ -34,7 +35,7 @@ import java.io.FileOutputStream
 
 /**
  * A comprehensive voice selector for character settings that allows:
- * - Selecting the voice model (ElevenLabs or Inworld)
+ * - Selecting the voice model (ElevenLabs, Inworld, or Gemini)
  * - Picking a voice based on the selected model
  * - Showing voice info with preview similar to InworldVoicesScreen
  */
@@ -86,6 +87,7 @@ fun CharacterVoiceSelector(
                             when (source) {
                                 VoiceSource.ELEVEN_LABS -> "ElevenLabs"
                                 VoiceSource.INWORLD -> "Inworld"
+                                VoiceSource.GEMINI -> "Gemini"
                             }
                         )
                     },
@@ -229,14 +231,15 @@ private fun CharacterVoiceSelectorDialog(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val inworldService = remember { InworldService.getInstance(context) }
+    val geminiTtsService = remember { GeminiTtsService.getInstance(context) }
     
     val playbackState by ttsManager.playbackState.collectAsState()
     val currentPlayingId by ttsManager.currentPlayingId.collectAsState()
     
-    // For Inworld preview with TTS synthesis
-    var inworldPreviewLoading by remember { mutableStateOf<String?>(null) }
+    // For providers that synthesize previews instead of using preview URLs.
+    var generatedPreviewLoading by remember { mutableStateOf<String?>(null) }
     val mediaPlayer = remember { MediaPlayer() }
-    var inworldPlayingVoiceId by remember { mutableStateOf<String?>(null) }
+    var generatedPlayingVoiceId by remember { mutableStateOf<String?>(null) }
     
     // Cleanup media player on dispose
     DisposableEffect(Unit) {
@@ -260,7 +263,11 @@ private fun CharacterVoiceSelectorDialog(
         }
     }
     
-    fun playInworldPreview(voice: Voice) {
+    fun playGeneratedPreview(
+        voice: Voice,
+        extension: String,
+        synthesize: suspend (String, String) -> Result<ByteArray>
+    ) {
         scope.launch {
             // Stop current playback
             try {
@@ -272,39 +279,40 @@ private fun CharacterVoiceSelectorDialog(
                 mediaPlayer.release()
             }
             
-            if (inworldPlayingVoiceId == voice.voiceId && inworldPreviewLoading == null) {
-                inworldPlayingVoiceId = null
+            if (generatedPlayingVoiceId == voice.voiceId && generatedPreviewLoading == null) {
+                generatedPlayingVoiceId = null
                 return@launch
             }
             
-            inworldPlayingVoiceId = voice.voiceId
-            inworldPreviewLoading = voice.voiceId
+            generatedPlayingVoiceId = voice.voiceId
+            generatedPreviewLoading = voice.voiceId
             
             val text = "Hello, I am ${voice.name}. This is a preview of my voice."
-            inworldService.textToSpeech(text, voice.voiceId)
+            synthesize(text, voice.voiceId)
                 .onSuccess { audioData ->
                     try {
-                        val tempFile = File.createTempFile("preview_${voice.voiceId}", ".mp3", context.cacheDir)
+                        val safePrefix = "preview_${voice.source.name.lowercase()}_${voice.name.filter { it.isLetterOrDigit() }.take(16).ifBlank { "voice" }}"
+                        val tempFile = File.createTempFile(safePrefix, extension, context.cacheDir)
                         FileOutputStream(tempFile).use { it.write(audioData) }
                         
                         mediaPlayer.setDataSource(tempFile.absolutePath)
                         mediaPlayer.setOnCompletionListener {
-                            inworldPlayingVoiceId = null
-                            inworldPreviewLoading = null
+                            generatedPlayingVoiceId = null
+                            generatedPreviewLoading = null
                         }
                         mediaPlayer.prepare()
                         mediaPlayer.start()
-                        inworldPreviewLoading = null
+                        generatedPreviewLoading = null
                     } catch (e: Exception) {
                         e.printStackTrace()
-                        inworldPlayingVoiceId = null
-                        inworldPreviewLoading = null
+                        generatedPlayingVoiceId = null
+                        generatedPreviewLoading = null
                     }
                 }
                 .onFailure { e ->
                     e.printStackTrace()
-                    inworldPlayingVoiceId = null
-                    inworldPreviewLoading = null
+                    generatedPlayingVoiceId = null
+                    generatedPreviewLoading = null
                 }
         }
     }
@@ -322,6 +330,7 @@ private fun CharacterVoiceSelectorDialog(
                 when (voiceSource) {
                     VoiceSource.ELEVEN_LABS -> "Select ElevenLabs Voice"
                     VoiceSource.INWORLD -> "Select Inworld Voice"
+                    VoiceSource.GEMINI -> "Select Gemini Voice"
                 }
             )
         },
@@ -346,15 +355,18 @@ private fun CharacterVoiceSelectorDialog(
                 items(filteredVoices) { voice ->
                     val isPlayingThis = when (voiceSource) {
                         VoiceSource.ELEVEN_LABS -> currentPlayingId == voice.voiceId
-                        VoiceSource.INWORLD -> inworldPlayingVoiceId == voice.voiceId
+                        VoiceSource.INWORLD,
+                        VoiceSource.GEMINI -> generatedPlayingVoiceId == voice.voiceId
                     }
                     val isLoadingThis = when (voiceSource) {
                         VoiceSource.ELEVEN_LABS -> isPlayingThis && playbackState == TTSPlaybackState.LOADING
-                        VoiceSource.INWORLD -> inworldPreviewLoading == voice.voiceId
+                        VoiceSource.INWORLD,
+                        VoiceSource.GEMINI -> generatedPreviewLoading == voice.voiceId
                     }
                     val isActuallyPlaying = when (voiceSource) {
                         VoiceSource.ELEVEN_LABS -> isPlayingThis && playbackState == TTSPlaybackState.PLAYING
-                        VoiceSource.INWORLD -> inworldPlayingVoiceId == voice.voiceId && inworldPreviewLoading == null
+                        VoiceSource.INWORLD,
+                        VoiceSource.GEMINI -> generatedPlayingVoiceId == voice.voiceId && generatedPreviewLoading == null
                     }
                     
                     VoiceListItemEnhanced(
@@ -375,7 +387,14 @@ private fun CharacterVoiceSelectorDialog(
                                     }
                                 }
                                 VoiceSource.INWORLD -> {
-                                    playInworldPreview(voice)
+                                    playGeneratedPreview(voice, ".mp3") { previewText, voiceId ->
+                                        inworldService.textToSpeech(previewText, voiceId)
+                                    }
+                                }
+                                VoiceSource.GEMINI -> {
+                                    playGeneratedPreview(voice, ".wav") { previewText, voiceId ->
+                                        geminiTtsService.textToSpeech(previewText, voiceId)
+                                    }
                                 }
                             }
                         },
@@ -478,6 +497,12 @@ private fun VoiceListItemEnhanced(
                     val detailText = buildString {
                         voice.labels["workspace"]?.let { ws ->
                             if (voice.source == VoiceSource.INWORLD) append("Workspace: $ws")
+                        }
+                        voice.labels["style"]?.let { style ->
+                            if (style.isNotBlank()) {
+                                if (isNotEmpty()) append(" • ")
+                                append(style)
+                            }
                         }
                         voice.labels["language"]?.let { lang ->
                             if (lang.isNotBlank()) {

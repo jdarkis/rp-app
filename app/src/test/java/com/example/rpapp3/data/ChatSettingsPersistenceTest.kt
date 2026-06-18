@@ -112,7 +112,7 @@ class ChatSettingsPersistenceTest {
         assertEquals(500, restored.bedrockTopK)
         assertEquals(128_000, restored.bedrockMaxOutputTokens)
         assertEquals(SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE, restored.safetyHarassment)
-        assertEquals(ResponseLength.MEDIUM, restored.responseLength)
+        assertEquals(ResponseLength.SHORT, restored.responseLength)
         assertEquals(ChatSettingsManager.DEFAULT_TTS_MODEL_ID, restored.ttsModelId)
         assertEquals("en", restored.narratorLanguage)
         assertEquals(ChatSettingsManager.DEFAULT_AI_MODEL_ID, restored.aiModelId)

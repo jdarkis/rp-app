@@ -81,6 +81,21 @@ object InworldTTSModels {
     )
 }
 
+object GeminiTTSModels {
+    val GEMINI_3_1_FLASH_TTS_PREVIEW = TTSModel(
+        modelId = "gemini-3.1-flash-tts-preview",
+        name = "Gemini 3.1 Flash TTS Preview",
+        description = "Low-latency, controllable Gemini speech generation",
+        canDoTextToSpeech = true
+    )
+
+    val DEFAULT_MODELS = listOf(
+        GEMINI_3_1_FLASH_TTS_PREVIEW
+    )
+}
+
 object AllTTSModels {
-    val DEFAULT_MODELS = ElevenLabsTTSModels.DEFAULT_MODELS + InworldTTSModels.DEFAULT_MODELS
+    val DEFAULT_MODELS = ElevenLabsTTSModels.DEFAULT_MODELS +
+        InworldTTSModels.DEFAULT_MODELS +
+        GeminiTTSModels.DEFAULT_MODELS
 }

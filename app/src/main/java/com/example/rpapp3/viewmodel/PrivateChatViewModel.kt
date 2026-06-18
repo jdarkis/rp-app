@@ -18,6 +18,7 @@ import com.example.rpapp3.data.buildGeminiRequestDetails
 import com.example.rpapp3.data.ChatSettings
 import com.example.rpapp3.data.ChatSettingsManager
 import com.example.rpapp3.data.ElevenLabsService
+import com.example.rpapp3.data.GeminiTtsService
 import com.example.rpapp3.data.InworldService
 import com.example.rpapp3.data.PrivateChatSettings
 import com.example.rpapp3.data.ResponseLength
@@ -26,6 +27,7 @@ import com.example.rpapp3.data.TTSManager
 import com.example.rpapp3.data.TTSPlaybackState
 import com.example.rpapp3.data.TtsProvider
 import com.example.rpapp3.data.TtsRequestResolver
+import com.example.rpapp3.data.sanitizeChatHistoryForAiContext
 import com.example.rpapp3.data.model.Character
 import com.example.rpapp3.data.model.Chat
 import com.example.rpapp3.data.model.ChatMessage
@@ -70,6 +72,7 @@ class PrivateChatViewModel : ViewModel() {
     private var chatSettingsManager: ChatSettingsManager? = null
     private var elevenLabsService: ElevenLabsService? = null
     private var inworldService: InworldService? = null
+    private var geminiTtsService: GeminiTtsService? = null
     private var _ttsManager: TTSManager? = null
     private var bedrockService: BedrockService? = null
     private var appContext: Context? = null
@@ -135,6 +138,7 @@ class PrivateChatViewModel : ViewModel() {
             chatSettingsManager = ChatSettingsManager.getInstance(context)
             elevenLabsService = ElevenLabsService.getInstance(context)
             inworldService = InworldService.getInstance(context)
+            geminiTtsService = GeminiTtsService.getInstance(context)
             _ttsManager = TTSManager.getInstance(context)
             bedrockService = BedrockService()
             viewModelScope.launch {
@@ -151,6 +155,7 @@ class PrivateChatViewModel : ViewModel() {
                 )
                 elevenLabsService?.initialize()
                 inworldService?.initialize()
+                geminiTtsService?.initialize()
             }
         }
     }
@@ -439,20 +444,9 @@ class PrivateChatViewModel : ViewModel() {
                         if (contextMessages.isNotEmpty()) {
                             appendLine()
                             appendLine("--- Memory fragment ---")
-                            contextMessages.forEach { msg ->
+                            sanitizeChatHistoryForAiContext(contextMessages).forEach { msg ->
                                 val prefix = if (msg.isUser) "User" else msg.characterName ?: "AI"
-                                // Strip action/dialogue choices from AI messages
-                                val cleanedText = if (!msg.isUser) {
-                                    val actionsIndex = msg.text.indexOf("[ACTIONS]")
-                                    if (actionsIndex != -1) {
-                                        msg.text.substring(0, actionsIndex).trim()
-                                    } else {
-                                        msg.text
-                                    }
-                                } else {
-                                    msg.text
-                                }
-                                appendLine("$prefix: $cleanedText")
+                                appendLine("$prefix: ${msg.text}")
                             }
                         }
                     } catch (e: Exception) {
@@ -495,9 +489,11 @@ class PrivateChatViewModel : ViewModel() {
     }
 
     private fun modelHistory(excludedMessageId: String? = null): List<ChatMessage> {
-        return _fullMessageHistory.filter { message ->
-            excludedMessageId == null || message.id != excludedMessageId
-        }
+        return sanitizeChatHistoryForAiContext(
+            _fullMessageHistory.filter { message ->
+                excludedMessageId == null || message.id != excludedMessageId
+            }
+        )
     }
 
     fun sendMessage(userMessage: String) {
@@ -1011,6 +1007,11 @@ class PrivateChatViewModel : ViewModel() {
                         modelId = request.modelId
                     )
                     TtsProvider.INWORLD -> inworldService?.textToSpeech(
+                        text = text,
+                        voiceId = request.voiceId,
+                        modelId = request.modelId
+                    )
+                    TtsProvider.GEMINI -> geminiTtsService?.textToSpeech(
                         text = text,
                         voiceId = request.voiceId,
                         modelId = request.modelId

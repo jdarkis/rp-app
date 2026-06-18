@@ -60,6 +60,16 @@ internal fun selectableElevenLabsVoices(voices: List<Voice>): List<Voice> {
     return voices.filter(::isFreeApiCompatibleElevenLabsVoice)
 }
 
+internal fun selectableTtsVoices(voices: List<Voice>): List<Voice> {
+    return voices.filter { voice ->
+        when (voice.source) {
+            VoiceSource.ELEVEN_LABS -> isFreeApiCompatibleElevenLabsVoice(voice)
+            VoiceSource.INWORLD -> true
+            VoiceSource.GEMINI -> true
+        }
+    }
+}
+
 internal fun isFreeApiCompatibleElevenLabsVoice(voice: Voice): Boolean {
     return voice.source == VoiceSource.ELEVEN_LABS &&
         voice.labels["catalog_source"] == ElevenLabsCatalogSource.DEFAULT.name

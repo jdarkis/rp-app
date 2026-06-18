@@ -1,14 +1,27 @@
 package com.example.rpapp3.data.repository
 
 import com.example.rpapp3.data.model.Voice
+import com.example.rpapp3.data.model.VoiceSource
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
+import java.util.Base64
+
+internal fun voiceDocumentId(voice: Voice): String {
+    if (voice.source == VoiceSource.ELEVEN_LABS) {
+        return voice.voiceId
+    }
+
+    val encodedVoiceId = Base64.getUrlEncoder()
+        .withoutPadding()
+        .encodeToString(voice.voiceId.toByteArray(Charsets.UTF_8))
+    return "${voice.source.name.lowercase()}_$encodedVoiceId"
+}
 
 /**
- * Repository for storing user's custom Elevenlabs voices in Firestore.
+ * Repository for storing the user's activated TTS voices in Firestore.
  * Voices are stored in the "settings/elevenlabs_voices/voices" subcollection.
  */
 class VoiceRepository {
@@ -68,7 +81,7 @@ class VoiceRepository {
                 "labels" to voice.labels,
                 "source" to voice.source.name
             )
-            voicesCollection.document(voice.voiceId).set(voiceData).await()
+            voicesCollection.document(voiceDocumentId(voice)).set(voiceData).await()
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
@@ -79,16 +92,16 @@ class VoiceRepository {
         return if (active) {
             addVoice(voice)
         } else {
-            removeVoice(voice.voiceId)
+            removeVoice(voice)
         }
     }
     
     /**
      * Remove a voice from the user's custom voice list
      */
-    suspend fun removeVoice(voiceId: String): Result<Unit> {
+    suspend fun removeVoice(voice: Voice): Result<Unit> {
         return try {
-            voicesCollection.document(voiceId).delete().await()
+            voicesCollection.document(voiceDocumentId(voice)).delete().await()
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
@@ -98,9 +111,9 @@ class VoiceRepository {
     /**
      * Check if a voice exists in the user's custom voice list
      */
-    suspend fun hasVoice(voiceId: String): Boolean {
+    suspend fun hasVoice(voice: Voice): Boolean {
         return try {
-            val doc = voicesCollection.document(voiceId).get().await()
+            val doc = voicesCollection.document(voiceDocumentId(voice)).get().await()
             doc.exists()
         } catch (e: Exception) {
             false

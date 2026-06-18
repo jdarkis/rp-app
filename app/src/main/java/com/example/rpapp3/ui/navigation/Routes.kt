@@ -48,6 +48,7 @@ sealed class Routes(val route: String) {
     data object SettingsAppearance : Routes("settings/appearance")
     data object SettingsSystemPrompt : Routes("settings/system-prompt")
     data object SettingsUnlockPrompt : Routes("settings/unlock-prompt")
+    data object SettingsTtsVoices : Routes("settings/tts-voices")
     data object SettingsElevenLabsVoices : Routes("settings/elevenlabs-voices")
     data object SettingsInworldVoices : Routes("settings/inworld-voices")
     

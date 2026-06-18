@@ -18,12 +18,12 @@ import com.example.rpapp3.ui.settings.ApiKeysScreen
 import com.example.rpapp3.ui.settings.AppearanceScreen
 import com.example.rpapp3.ui.settings.BedrockApiKeyScreen
 import com.example.rpapp3.ui.settings.ElevenLabsApiKeysScreen
-import com.example.rpapp3.ui.settings.ElevenLabsVoicesScreen
 import com.example.rpapp3.ui.settings.SettingsScreen
 import com.example.rpapp3.ui.settings.SystemPromptScreen
+import com.example.rpapp3.ui.settings.TtsVoiceProvider
+import com.example.rpapp3.ui.settings.TtsVoicesScreen
 import com.example.rpapp3.ui.settings.UnlockPromptScreen
 import com.example.rpapp3.ui.settings.InworldApiKeysScreen
-import com.example.rpapp3.ui.settings.InworldVoicesScreen
 import com.example.rpapp3.ui.world.CreateWorldScreen
 import com.example.rpapp3.ui.world.EditWorldScreen
 import com.example.rpapp3.ui.world.WorldDetailScreen
@@ -260,9 +260,8 @@ fun AppNavigation(navController: NavHostController) {
                 onNavigateToAppearance = { navController.navigate(Routes.SettingsAppearance.route) },
                 onNavigateToSystemPrompt = { navController.navigate(Routes.SettingsSystemPrompt.route) },
                 onNavigateToUnlockPrompt = { navController.navigate(Routes.SettingsUnlockPrompt.route) },
-                onNavigateToElevenLabsVoices = { navController.navigate(Routes.SettingsElevenLabsVoices.route) },
+                onNavigateToTtsVoices = { navController.navigate(Routes.SettingsTtsVoices.route) },
                 onNavigateToInworldApiKeys = { navController.navigate(Routes.SettingsInworldApiKeys.route) },
-                onNavigateToInworldVoices = { navController.navigate(Routes.SettingsInworldVoices.route) }
             )
         }
         
@@ -302,9 +301,16 @@ fun AppNavigation(navController: NavHostController) {
             )
         }
         
-        composable(Routes.SettingsElevenLabsVoices.route) {
-            ElevenLabsVoicesScreen(
+        composable(Routes.SettingsTtsVoices.route) {
+            TtsVoicesScreen(
                 onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Routes.SettingsElevenLabsVoices.route) {
+            TtsVoicesScreen(
+                onNavigateBack = { navController.popBackStack() },
+                initialProvider = TtsVoiceProvider.ELEVEN_LABS
             )
         }
         
@@ -315,8 +321,9 @@ fun AppNavigation(navController: NavHostController) {
         }
         
         composable(Routes.SettingsInworldVoices.route) {
-            InworldVoicesScreen(
-                onNavigateBack = { navController.popBackStack() }
+            TtsVoicesScreen(
+                onNavigateBack = { navController.popBackStack() },
+                initialProvider = TtsVoiceProvider.INWORLD
             )
         }
         

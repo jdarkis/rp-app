@@ -5,7 +5,8 @@ package com.example.rpapp3.data.model
  */
 enum class VoiceSource {
     ELEVEN_LABS,
-    INWORLD
+    INWORLD,
+    GEMINI
 }
 
 /**

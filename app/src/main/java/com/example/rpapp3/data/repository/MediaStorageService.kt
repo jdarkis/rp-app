@@ -167,7 +167,7 @@ class MediaStorageService {
      * @param chatId The chat ID for organizing audio files
      * @param messageId The message ID
      * @param segmentIndex The segment index within the message
-     * @param audioBytes The audio data as bytes (typically MP3 from ElevenLabs)
+     * @param audioBytes The audio data as bytes
      * @return URL of the uploaded audio file
      */
     suspend fun uploadAudioBytes(
@@ -184,8 +184,8 @@ class MediaStorageService {
             
             ensureInitialized(context)
             
-            // Write bytes to temp file (Cloudinary SDK needs a file URI)
-            val tempFile = java.io.File(context.cacheDir, "tts_audio_${messageId}_${segmentIndex}.mp3")
+            val extension = audioExtension(audioBytes)
+            val tempFile = java.io.File(context.cacheDir, "tts_audio_${messageId}_${segmentIndex}.$extension")
             tempFile.writeBytes(audioBytes)
             val tempUri = Uri.fromFile(tempFile)
             
@@ -255,5 +255,23 @@ class MediaStorageService {
         // Note: Cloudinary unsigned uploads don't support deletion
         Log.w(TAG, "Delete not supported with unsigned uploads. CharacterId: $characterId")
         Result.success(Unit)
+    }
+
+    private fun audioExtension(audioBytes: ByteArray): String {
+        return if (
+            audioBytes.size >= 12 &&
+            audioBytes[0] == 'R'.code.toByte() &&
+            audioBytes[1] == 'I'.code.toByte() &&
+            audioBytes[2] == 'F'.code.toByte() &&
+            audioBytes[3] == 'F'.code.toByte() &&
+            audioBytes[8] == 'W'.code.toByte() &&
+            audioBytes[9] == 'A'.code.toByte() &&
+            audioBytes[10] == 'V'.code.toByte() &&
+            audioBytes[11] == 'E'.code.toByte()
+        ) {
+            "wav"
+        } else {
+            "mp3"
+        }
     }
 }
