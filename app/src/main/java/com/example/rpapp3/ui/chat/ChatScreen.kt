@@ -39,6 +39,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.rpapp3.data.MessageFilterMode
 import com.example.rpapp3.data.TTSPlaybackState
+import com.example.rpapp3.data.TtsReplayAudioEntry
 import com.example.rpapp3.data.model.ChatMessage
 import com.example.rpapp3.data.model.Character
 import com.example.rpapp3.data.model.ModelRequestDetailsWithUsage
@@ -234,6 +235,7 @@ fun ChatScreen(
     val playbackState = ttsManager?.playbackState?.collectAsState()
     val currentPlayingId = ttsManager?.currentPlayingId?.collectAsState()
     val ttsGenerationState by viewModel.ttsGenerationState.collectAsState()
+    val ttsReplayAudio by viewModel.ttsReplayAudio.collectAsState()
 
     val latestChatSettings by rememberUpdatedState(chatSettings)
     val latestCharacters by rememberUpdatedState(characters)
@@ -272,11 +274,20 @@ fun ChatScreen(
         }
     }
     
-    // Load cached audio URLs for AI messages
-    LaunchedEffect(messages) {
-        messages.filter { !it.isUser }.forEach { message ->
-            viewModel.loadCachedAudioUrlsForMessage(message.id)
-        }
+    // Load persisted generated audio URLs for AI messages.
+    // Uses snapshotFlow to properly observe the SnapshotStateList content; a plain
+    // LaunchedEffect(messages) only keys on the list *reference* (which never changes),
+    // so it would fire once before Firestore messages finish loading and then never again.
+    val loadedAudioMessageIds = remember { mutableSetOf<String>() }
+    LaunchedEffect(Unit) {
+        snapshotFlow { messages.filter { !it.isUser }.map { it.id } }
+            .collect { aiMessageIds ->
+                aiMessageIds.forEach { id ->
+                    if (loadedAudioMessageIds.add(id)) {
+                        viewModel.loadGeneratedAudioForMessage(id)
+                    }
+                }
+            }
     }
     
     // Auto-TTS only reacts to successful AI responses produced while this screen is active.
@@ -503,12 +514,12 @@ fun ChatScreen(
                         currentPlayingSegmentId = currentPlayingId?.value,
                         generatingSegmentId = ttsGenerationState.activeSegmentId
                             .takeIf { ttsGenerationState.isGenerating },
-                        cachedAudioUrls = viewModel.getCachedAudioUrlsForMessage(message.id),
+                        replayAudio = ttsReplayAudio[message.id] ?: emptyMap(),
                         onSpeak = { text, characterId, msgId, segmentIdx -> 
                             viewModel.speakTextWithCaching(text, characterId, msgId, segmentIdx)
                         },
-                        onPlayCached = { audioUrl, segmentId ->
-                            viewModel.playCachedAudio(audioUrl, segmentId)
+                        onPlayGeneratedAudio = { msgId, segmentIndex, segmentId ->
+                            viewModel.playGeneratedAudio(msgId, segmentIndex, segmentId)
                         },
                         onStopSpeaking = { viewModel.stopSpeaking() }
                     )
@@ -651,9 +662,9 @@ fun MessageBubble(
     isLoadingTTS: Boolean = false,
     currentPlayingSegmentId: String? = null,
     generatingSegmentId: String? = null,
-    cachedAudioUrls: Map<Int, String> = emptyMap(),
+    replayAudio: Map<Int, TtsReplayAudioEntry> = emptyMap(),
     onSpeak: ((text: String, characterId: String?, messageId: String, segmentIndex: Int) -> Unit)? = null,
-    onPlayCached: ((audioUrl: String, segmentId: String) -> Unit)? = null,
+    onPlayGeneratedAudio: ((messageId: String, segmentIndex: Int, segmentId: String) -> Unit)? = null,
     onStopSpeaking: (() -> Unit)? = null,
     isLast: Boolean = false,
     isChatLoading: Boolean = false
@@ -884,10 +895,10 @@ fun MessageBubble(
                                 val isThisSegmentLoading =
                                     generatingSegmentId == segmentId ||
                                         (currentPlayingSegmentId == segmentId && isLoadingTTS)
-                                val cachedAudioUrl = cachedAudioUrls[index]
+                                val replayAudioEntry = replayAudio[index]
                                 
-                                // Play button - show when cached audio exists
-                                if (cachedAudioUrl != null && onPlayCached != null) {
+                                // Play button - show when generated audio exists
+                                if (replayAudioEntry?.isPlayable == true && onPlayGeneratedAudio != null) {
                                     DropdownMenuItem(
                                         text = { 
                                             Text(if (isThisSegmentPlaying) "Stop" else "Play")
@@ -897,7 +908,7 @@ fun MessageBubble(
                                             if (isThisSegmentPlaying) {
                                                 onStopSpeaking()
                                             } else {
-                                                onPlayCached(cachedAudioUrl, segmentId)
+                                                onPlayGeneratedAudio(message.id, index, segmentId)
                                             }
                                         },
                                         leadingIcon = {

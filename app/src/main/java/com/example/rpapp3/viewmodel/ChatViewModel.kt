@@ -28,11 +28,17 @@ import com.example.rpapp3.data.TTSManager
 import com.example.rpapp3.data.TTSPlaybackState
 import com.example.rpapp3.data.TtsGenerationState
 import com.example.rpapp3.data.TtsProvider
+import com.example.rpapp3.data.TtsReplayAudioState
 import com.example.rpapp3.data.TtsRequestResolver
 import com.example.rpapp3.data.ResolvedTtsRequest
 import com.example.rpapp3.data.StorySummarizerService
 import com.example.rpapp3.data.SummaryDetailLevel
 import com.example.rpapp3.data.SummaryResult
+import com.example.rpapp3.data.mergeLocalTtsReplayAudioUris
+import com.example.rpapp3.data.mergePersistedTtsReplayAudioUrls
+import com.example.rpapp3.data.putTtsReplayAudioBytes
+import com.example.rpapp3.data.putTtsReplayAudioUrlIfCurrent
+import com.example.rpapp3.data.removeTtsReplayAudioForMessages
 import com.example.rpapp3.data.sanitizeChatHistoryForAiContext
 import com.example.rpapp3.data.model.Character
 import com.example.rpapp3.data.model.Chat
@@ -54,6 +60,7 @@ import com.example.rpapp3.data.repository.ChatRepository
 import com.example.rpapp3.data.repository.MediaStorageService
 import com.example.rpapp3.data.repository.SegmentAudioRepository
 import com.example.rpapp3.data.repository.SettingsRepository
+import com.example.rpapp3.data.repository.TtsReplayAudioRepository
 import com.example.rpapp3.data.repository.VersionHistoryRepository
 import com.example.rpapp3.data.repository.WorldRepository
 import com.example.rpapp3.core.util.LanguageUtils
@@ -109,6 +116,7 @@ class ChatViewModel : ViewModel() {
     private val settingsRepository = SettingsRepository()
     private val segmentAudioRepository = SegmentAudioRepository()
     private val mediaStorageService = MediaStorageService()
+    private var ttsReplayAudioRepository: TtsReplayAudioRepository? = null
     private val versionHistoryRepository = VersionHistoryRepository()
     
     // Application context for media uploads
@@ -173,9 +181,11 @@ class ChatViewModel : ViewModel() {
     private val _systemPrompt = MutableStateFlow<String?>(null)
     val systemPrompt: StateFlow<String?> = _systemPrompt
     
-    // Cached audio URLs for current message (segmentIndex -> audioUrl)
-    private val _cachedAudioUrls = MutableStateFlow<Map<String, Map<Int, String>>>(emptyMap())
-    val cachedAudioUrls: StateFlow<Map<String, Map<Int, String>>> = _cachedAudioUrls
+    // Replayable generated audio for each message segment. Entries are updated as soon as
+    // audio generation succeeds, then upgraded to persisted URLs when upload completes.
+    private val _ttsReplayAudio = MutableStateFlow<TtsReplayAudioState>(emptyMap())
+    val ttsReplayAudio: StateFlow<TtsReplayAudioState> = _ttsReplayAudio
+    private var nextTtsReplayGenerationId = 0L
     
     // Story summarizer state
     private var storySummarizerService: StorySummarizerService? = null
@@ -206,6 +216,9 @@ class ChatViewModel : ViewModel() {
     fun initializeWithContext(context: Context) {
         if (apiKeyManager == null) {
             appContext = context.applicationContext
+            ttsReplayAudioRepository = TtsReplayAudioRepository(
+                java.io.File(context.applicationContext.filesDir, "tts_replay_audio")
+            )
             apiKeyManager = ApiKeyManager.getInstance(context)
             bedrockApiKeyManager = BedrockApiKeyManager.getInstance(context)
             elevenLabsService = ElevenLabsService.getInstance(context)
@@ -1171,13 +1184,26 @@ class ChatViewModel : ViewModel() {
         // Optimistically remove from local state
         val messageIndex = _messages.indexOf(messageToDelete)
         _messages.removeAt(messageIndex)
+        val replayAudioToRestore = _ttsReplayAudio.value[messageId]
+        _ttsReplayAudio.value = removeTtsReplayAudioForMessages(
+            state = _ttsReplayAudio.value,
+            messageIds = listOf(messageId)
+        )
         
         viewModelScope.launch {
             chatRepository.deleteMessage(chatId, messageId)
+                .onSuccess {
+                    ttsReplayAudioRepository?.deleteAudioForMessage(chatId, messageId)
+                }
                 .onFailure {
                     // Restore message if deletion failed
                     if (messageIndex >= 0 && messageIndex <= _messages.size) {
                         _messages.add(messageIndex, messageToDelete)
+                    }
+                    if (replayAudioToRestore != null) {
+                        _ttsReplayAudio.value = _ttsReplayAudio.value.toMutableMap().also { replayAudio ->
+                            replayAudio[messageId] = replayAudioToRestore
+                        }
                     }
                 }
         }
@@ -1215,10 +1241,17 @@ class ChatViewModel : ViewModel() {
         
         // Remove messages from local state
         _messages.removeAll(messagesToDelete.toSet())
+        _ttsReplayAudio.value = removeTtsReplayAudioForMessages(
+            state = _ttsReplayAudio.value,
+            messageIds = messageIdsToDelete
+        )
         
         // Delete from Firestore and resend
         viewModelScope.launch {
             chatRepository.deleteMessages(chatId, messageIdsToDelete)
+                .onSuccess {
+                    ttsReplayAudioRepository?.deleteAudioForMessages(chatId, messageIdsToDelete)
+                }
             
             // Resend the user message to get new AI response
             _isLoading.value = true
@@ -1887,9 +1920,38 @@ class ChatViewModel : ViewModel() {
             
             return result.fold(
                 onSuccess = { audioData ->
+                    val chatId = _currentChat.value?.id
+                    val localAudioUri = if (chatId != null && messageId != null && segmentIndex != null) {
+                        ttsReplayAudioRepository
+                            ?.saveAudio(
+                                chatId = chatId,
+                                messageId = messageId,
+                                segmentIndex = segmentIndex,
+                                audioBytes = audioData
+                            )
+                            ?.getOrNull()
+                    } else {
+                        null
+                    }
+
+                    val replayGenerationId = if (messageId != null && segmentIndex != null) {
+                        nextTtsReplayGenerationId += 1
+                        val generationId = nextTtsReplayGenerationId
+                        _ttsReplayAudio.value = putTtsReplayAudioBytes(
+                            state = _ttsReplayAudio.value,
+                            messageId = messageId,
+                            segmentIndex = segmentIndex,
+                            generationId = generationId,
+                            audioData = audioData,
+                            localAudioUri = localAudioUri
+                        )
+                        generationId
+                    } else {
+                        null
+                    }
+
                     // Upload to Cloudinary and cache if message info provided
                     if (messageId != null && segmentIndex != null && appContext != null) {
-                        val chatId = _currentChat.value?.id
                         if (chatId != null) {
                             viewModelScope.launch {
                                 try {
@@ -1911,13 +1973,16 @@ class ChatViewModel : ViewModel() {
                                             audioUrl = audioUrl,
                                             textHash = cleanText.hashCode()
                                         )
-                                        
-                                        // Update local cache state
-                                        val currentCache = _cachedAudioUrls.value.toMutableMap()
-                                        val messageCache = currentCache[messageId]?.toMutableMap() ?: mutableMapOf()
-                                        messageCache[segmentIndex] = audioUrl
-                                        currentCache[messageId] = messageCache
-                                        _cachedAudioUrls.value = currentCache
+
+                                        if (replayGenerationId != null) {
+                                            _ttsReplayAudio.value = putTtsReplayAudioUrlIfCurrent(
+                                                state = _ttsReplayAudio.value,
+                                                messageId = messageId,
+                                                segmentIndex = segmentIndex,
+                                                generationId = replayGenerationId,
+                                                audioUrl = audioUrl
+                                            )
+                                        }
                                         
                                         Log.d("ChatViewModel", "Audio cached for message=$messageId, segment=$segmentIndex")
                                     }.onFailure { e ->
@@ -1945,39 +2010,47 @@ class ChatViewModel : ViewModel() {
     }
     
     /**
-     * Play cached audio from URL
+     * Play the latest generated audio for a message segment.
      */
-    fun playCachedAudio(audioUrl: String, segmentId: String) {
-        _ttsManager?.playFromUrl(audioUrl, segmentId)
+    fun playGeneratedAudio(messageId: String, segmentIndex: Int, segmentId: String) {
+        val replayAudio = _ttsReplayAudio.value[messageId]?.get(segmentIndex) ?: return
+        val audioData = replayAudio.audioData
+        val localAudioUri = replayAudio.localAudioUri
+        val audioUrl = replayAudio.audioUrl
+
+        when {
+            audioData != null -> _ttsManager?.playFromBytes(audioData, segmentId)
+            !localAudioUri.isNullOrBlank() -> _ttsManager?.playFromUrl(localAudioUri, segmentId)
+            !audioUrl.isNullOrBlank() -> _ttsManager?.playFromUrl(audioUrl, segmentId)
+        }
     }
     
     /**
-     * Get cached audio URL for a segment if available
+     * Load persisted generated audio URLs for a message.
      */
-    fun getCachedAudioUrl(messageId: String, segmentIndex: Int): String? {
-        return _cachedAudioUrls.value[messageId]?.get(segmentIndex)
-    }
-    
-    /**
-     * Get all cached audio URLs for a message (used by UI)
-     */
-    fun getCachedAudioUrlsForMessage(messageId: String): Map<Int, String> {
-        return _cachedAudioUrls.value[messageId] ?: emptyMap()
-    }
-    
-    /**
-     * Load cached audio URLs for all messages in the current chat
-     */
-    fun loadCachedAudioUrlsForMessage(messageId: String) {
+    fun loadGeneratedAudioForMessage(messageId: String) {
         val chatId = _currentChat.value?.id ?: return
         
         viewModelScope.launch {
             try {
+                val localAudioUris = ttsReplayAudioRepository
+                    ?.loadAudioUrisForMessage(chatId, messageId)
+                    .orEmpty()
+                if (localAudioUris.isNotEmpty()) {
+                    _ttsReplayAudio.value = mergeLocalTtsReplayAudioUris(
+                        state = _ttsReplayAudio.value,
+                        messageId = messageId,
+                        localAudioUris = localAudioUris
+                    )
+                }
+
                 val cachedUrls = segmentAudioRepository.getAudioUrlsForMessage(chatId, messageId)
                 if (cachedUrls.isNotEmpty()) {
-                    val currentCache = _cachedAudioUrls.value.toMutableMap()
-                    currentCache[messageId] = cachedUrls
-                    _cachedAudioUrls.value = currentCache
+                    _ttsReplayAudio.value = mergePersistedTtsReplayAudioUrls(
+                        state = _ttsReplayAudio.value,
+                        messageId = messageId,
+                        audioUrls = cachedUrls
+                    )
                     Log.d("ChatViewModel", "Loaded ${cachedUrls.size} cached audio URLs for message $messageId")
                 }
             } catch (e: Exception) {
